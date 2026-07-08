@@ -1,0 +1,39 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[auth]
+# MVP：无静态 api_tokens；Token 由注册/登录写入 user_sessions
+password_cost = 12                    # argon2 cost
+token_prefix = "doki_"
+
+[database]
+url = "mysql://dokidoki:password@mysql:3306/dokidoki"
+
+[llm]
+base_url = "https://api.deepseek.com/v1"
+api_key = "sk-..."
+model = "deepseek-chat"
+vision_model = "deepseek-chat"        # 支持 vision 时填写
+
+[upload]
+dir = "/data/uploads"
+max_bytes = 10485760                  # 10MB
+allowed_types = ["image/jpeg", "image/png", "image/webp"]
+
+[chat]
+burst_silence_ms = 2000
+min_reply_delay_ms = 300
+max_reply_delay_ms = 800
+bubble_delay_base_ms = 400
+bubble_delay_per_char_ms = 50
+
+[summary]
+trigger_turns = 30
+keep_recent_turns = 10
+
+[push]
+fcm_credentials_path = "/secrets/fcm.json"   # 可选
+
+[proactive]
+default_max_per_day = 20
