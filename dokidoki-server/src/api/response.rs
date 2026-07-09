@@ -29,13 +29,13 @@ impl<T> ApiResponse<T> {
         }
     }
 
-    pub fn with_status(status: StatusCode, data: T) -> Self {
-        Self { data, status }
-    }
+    // pub fn with_status(status: StatusCode, data: T) -> Self {
+    //     Self { data, status }
+    // }
 
-    pub fn status(&self) -> StatusCode {
-        self.status
-    }
+    // pub fn status(&self) -> StatusCode {
+    //     self.status
+    // }
 }
 
 impl ApiResponse<&'static str> {
