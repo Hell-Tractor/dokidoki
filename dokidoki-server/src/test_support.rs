@@ -28,6 +28,14 @@ pub async fn setup_app() -> Router {
     api::router(state)
 }
 
+/// 不连接数据库的 Router；适用于 `/health` 等无 DB 依赖的测试。
+pub fn setup_app_without_db() -> Router {
+    let config = config::Config::for_test("mysql://127.0.0.1:3306/unused");
+    let pool = MySqlPool::connect_lazy(&config.database.url).expect("lazy pool");
+    let state = Arc::new(AppState::from_parts(config, pool));
+    api::router(state)
+}
+
 async fn init_test_database(url: &str) -> MySqlPool {
     let pool = MySqlPool::connect(url)
         .await

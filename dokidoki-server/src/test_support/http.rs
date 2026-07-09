@@ -31,6 +31,29 @@ pub async fn post_json(app: &mut Router, uri: &str, body: Value) -> (StatusCode,
     (status, json)
 }
 
+pub async fn get(app: &mut Router, uri: &str) -> (StatusCode, Value) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, json)
+}
+
 pub fn unique_username(prefix: &str) -> String {
     format!("{}_{}", prefix, uuid::Uuid::new_v4().simple())
 }
