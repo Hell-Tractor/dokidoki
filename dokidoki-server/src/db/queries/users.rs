@@ -41,6 +41,50 @@ pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<User>, AppE
     Ok(user)
 }
 
+pub struct UpdateMeParams {
+    pub display_name: Option<String>,
+    pub birthday: Option<NaiveDate>,
+    pub max_proactive_per_day: Option<i32>,
+}
+
+pub async fn update_profile(
+    pool: &MySqlPool,
+    id: &str,
+    current: &User,
+    params: UpdateMeParams,
+) -> Result<User, AppError> {
+    let display_name = params
+        .display_name
+        .unwrap_or_else(|| current.display_name.clone());
+    let birthday = params.birthday.or(current.birthday);
+    let max_proactive_per_day = params
+        .max_proactive_per_day
+        .unwrap_or(current.max_proactive_per_day);
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET display_name = ?, birthday = ?, max_proactive_per_day = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(&display_name)
+    .bind(birthday)
+    .bind(max_proactive_per_day)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(User {
+        id: id.to_owned(),
+        username: current.username.clone(),
+        display_name,
+        birthday,
+        max_proactive_per_day,
+    })
+}
+
 pub async fn insert<'e, E>(
     executor: E,
     id: &str,
