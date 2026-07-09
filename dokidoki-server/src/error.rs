@@ -102,6 +102,19 @@ impl AppError {
         tracing::error!("{err:?}");
         Self::with_code(ErrorCode::InternalError)
     }
+
+    pub fn from_db(err: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(db_err) = &err {
+            if let Some(mysql_err) =
+                db_err.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
+            {
+                if mysql_err.number() == 1062 {
+                    return Self::username_taken();
+                }
+            }
+        }
+        Self::internal(err)
+    }
 }
 
 /// 进程启动、配置加载等非 HTTP 错误。

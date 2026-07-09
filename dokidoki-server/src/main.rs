@@ -5,11 +5,12 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 
 use crate::error::Result;
 
-mod state;
-mod config;
-mod error;
 mod api;
 mod auth;
+mod config;
+mod db;
+mod error;
+mod state;
 
 async fn run() -> Result<()> {
     let shared_state = Arc::new(state::AppState::new().await?);
