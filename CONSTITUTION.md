@@ -193,7 +193,7 @@ db → 无上层依赖
 - **每个 REST API 须有对应集成测试**（`tests/<domain>_api.rs`）
 - 集成测试使用真实 MySQL，通过环境变量 `TEST_DATABASE_URL` 连接（如 `mysql://user:pass@127.0.0.1:3306/dokidoki_test`）
 - 运行：`TEST_DATABASE_URL=... cargo test --test auth_api`
-- 测试辅助代码放 `src/test_support.rs`；HTTP 断言 helper 放 `tests/common/mod.rs`
+- 测试辅助代码放 `src/test_support.rs` 及子模块（如 `test_support/http.rs`）；**不使用** `mod.rs`
 - 目标：新增 API 对应模块行覆盖率 **> 90%**（`cargo llvm-cov` 度量）
 - MVP 阶段 auth 等 DB 密集型接口用集成测试；纯函数（hash/verify）可补单元测试
 

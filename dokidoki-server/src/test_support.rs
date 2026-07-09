@@ -1,5 +1,7 @@
 //! 集成测试辅助；需要设置环境变量 `TEST_DATABASE_URL`。
 
+pub mod http;
+
 use std::sync::{Arc, Mutex};
 
 use axum::Router;

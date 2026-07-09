@@ -1,9 +1,7 @@
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::json;
 
-use common::{
+use dokidoki_server::test_support::http::{
     assert_auth_success, assert_error, login_body, post_json, register_body, unique_username,
 };
 
