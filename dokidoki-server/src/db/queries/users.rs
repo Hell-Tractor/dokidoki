@@ -1,7 +1,29 @@
 use chrono::NaiveDate;
-use sqlx::{Executor, MySql};
+use sqlx::{Executor, MySql, MySqlPool};
 
-use crate::{db::models::User, error::AppError};
+use crate::{
+    db::models::{User, UserCredentials},
+    error::AppError,
+};
+
+pub async fn find_by_username(
+    pool: &MySqlPool,
+    username: &str,
+) -> Result<Option<UserCredentials>, AppError> {
+    let user = sqlx::query_as::<_, UserCredentials>(
+        r#"
+        SELECT id, username, password_hash, display_name, birthday, max_proactive_per_day
+        FROM users
+        WHERE username = ?
+        "#,
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(user)
+}
 
 pub async fn insert<'e, E>(
     executor: E,

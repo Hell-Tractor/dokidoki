@@ -1,6 +1,6 @@
 use argon2::{
     Argon2,
-    password_hash::{PasswordHasher, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use chrono::NaiveDate;
 use rand_core::OsRng;
@@ -21,6 +21,11 @@ pub struct RegisterParams {
     pub birthday: Option<NaiveDate>,
 }
 
+pub struct LoginParams {
+    pub username: String,
+    pub password: String,
+}
+
 pub struct AuthSession {
     pub token: String,
     pub user: User,
@@ -38,9 +43,6 @@ pub async fn register(
 
     let password_hash = hash_password(&params.password, auth_config.password_cost)?;
     let user_id = Uuid::new_v4().to_string();
-    let session_id = Uuid::new_v4().to_string();
-    let token = generate_token(&auth_config.token_prefix);
-    let token_hash = hash_token(&token);
 
     let mut tx = pool.begin().await.map_err(AppError::internal)?;
 
@@ -54,9 +56,41 @@ pub async fn register(
     )
     .await?;
 
-    queries::sessions::insert(&mut *tx, &session_id, &user_id, &token_hash).await?;
+    let session = create_session(&mut *tx, auth_config, user).await?;
 
     tx.commit().await.map_err(AppError::internal)?;
+
+    Ok(session)
+}
+
+pub async fn login(
+    pool: &MySqlPool,
+    auth_config: &Auth,
+    params: LoginParams,
+) -> Result<AuthSession, AppError> {
+    let credentials = queries::users::find_by_username(pool, &params.username)
+        .await?
+        .ok_or_else(AppError::invalid_credentials)?;
+
+    verify_password(&params.password, &credentials.password_hash)?;
+
+    let user = credentials.into();
+    create_session(pool, auth_config, user).await
+}
+
+async fn create_session<'e, E>(
+    executor: E,
+    auth_config: &Auth,
+    user: User,
+) -> Result<AuthSession, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
+    let session_id = Uuid::new_v4().to_string();
+    let token = generate_token(&auth_config.token_prefix);
+    let token_hash = hash_token(&token);
+
+    queries::sessions::insert(executor, &session_id, &user.id, &token_hash).await?;
 
     Ok(AuthSession { token, user })
 }
@@ -73,6 +107,16 @@ fn hash_password(password: &str, password_cost: u32) -> Result<String, AppError>
         AppError::with_code(crate::error::ErrorCode::InternalError)
     })?;
     Ok(hash.to_string())
+}
+
+fn verify_password(password: &str, password_hash: &str) -> Result<(), AppError> {
+    let parsed = PasswordHash::new(password_hash).map_err(|e| {
+        tracing::error!("invalid password hash in db: {e:?}");
+        AppError::with_code(crate::error::ErrorCode::InternalError)
+    })?;
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .map_err(|_| AppError::invalid_credentials())
 }
 
 fn generate_token(prefix: &str) -> String {

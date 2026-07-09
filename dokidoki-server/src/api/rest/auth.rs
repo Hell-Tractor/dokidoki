@@ -7,12 +7,14 @@ use validator::Validate;
 
 use crate::{
     api::{response::ApiResponse, response::ApiResult, ValidatedJson},
-    auth::{self, RegisterParams},
+    auth::{self, LoginParams, RegisterParams},
     state::AppState,
 };
 
 pub fn api() -> axum::Router<Arc<AppState>> {
-    axum::Router::new().route("/register", post(register))
+    axum::Router::new()
+        .route("/register", post(register))
+        .route("/login", post(login))
 }
 
 #[derive(Deserialize, Validate)]
@@ -26,6 +28,14 @@ struct RegisterRequest {
     birthday: Option<NaiveDate>,
 }
 
+#[derive(Deserialize, Validate)]
+struct LoginRequest {
+    #[validate(length(min = 1, max = 64))]
+    username: String,
+    #[validate(length(min = 8, max = 32))]
+    password: String,
+}
+
 #[derive(Serialize)]
 struct UserResponse {
     id: String,
@@ -37,15 +47,27 @@ struct UserResponse {
 }
 
 #[derive(Serialize)]
-struct RegisterResponse {
+struct AuthResponse {
     token: String,
     user: UserResponse,
+}
+
+impl From<crate::db::models::User> for UserResponse {
+    fn from(user: crate::db::models::User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            display_name: user.display_name,
+            birthday: user.birthday,
+            max_proactive_per_day: user.max_proactive_per_day as u32,
+        }
+    }
 }
 
 async fn register(
     State(state): State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<RegisterRequest>,
-) -> ApiResult<RegisterResponse> {
+) -> ApiResult<AuthResponse> {
     let session = auth::register(
         &state.db,
         &state.config.auth,
@@ -58,14 +80,28 @@ async fn register(
     )
     .await?;
 
-    Ok(ApiResponse::created(RegisterResponse {
+    Ok(ApiResponse::created(AuthResponse {
         token: session.token,
-        user: UserResponse {
-            id: session.user.id,
-            username: session.user.username,
-            display_name: session.user.display_name,
-            birthday: session.user.birthday,
-            max_proactive_per_day: session.user.max_proactive_per_day as u32,
+        user: session.user.into(),
+    }))
+}
+
+async fn login(
+    State(state): State<Arc<AppState>>,
+    ValidatedJson(body): ValidatedJson<LoginRequest>,
+) -> ApiResult<AuthResponse> {
+    let session = auth::login(
+        &state.db,
+        &state.config.auth,
+        LoginParams {
+            username: body.username,
+            password: body.password,
         },
+    )
+    .await?;
+
+    Ok(ApiResponse::ok(AuthResponse {
+        token: session.token,
+        user: session.user.into(),
     }))
 }
