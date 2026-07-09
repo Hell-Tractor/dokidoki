@@ -4,8 +4,9 @@ use serde_json::json;
 use dokidoki_server::test_support::http::{
     assert_auth_success, assert_error, login_body, post_json, register_body, unique_username,
 };
+use dokidoki_server::test_support::TestApp;
 
-async fn setup() -> axum::Router {
+async fn setup() -> TestApp {
     dokidoki_server::test_support::setup_app().await
 }
 
@@ -116,7 +117,7 @@ async fn register_invalid_json_returns_400() {
 
     let app = setup().await;
 
-    let response = app
+    let response = app.clone()
         .oneshot(
             axum::http::Request::builder()
                 .method("POST")

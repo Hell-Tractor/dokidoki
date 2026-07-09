@@ -2,6 +2,7 @@
 
 pub mod http;
 
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -11,9 +12,28 @@ use crate::{api, config, state::AppState};
 
 static DB_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+pub struct TestApp {
+    pub app: Router,
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+impl Deref for TestApp {
+    type Target = Router;
+
+    fn deref(&self) -> &Self::Target {
+        &self.app
+    }
+}
+
+impl DerefMut for TestApp {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.app
+    }
+}
+
 /// 连接测试库、跑迁移、清空 auth 相关表，返回可 `oneshot` 的 Router。
-pub async fn setup_app() -> Router {
-    let _guard = DB_TEST_LOCK.lock().expect("test db lock poisoned");
+pub async fn setup_app() -> TestApp {
+    let guard = DB_TEST_LOCK.lock().expect("test db lock poisoned");
 
     let url = std::env::var("TEST_DATABASE_URL").expect(
         "TEST_DATABASE_URL is required for integration tests \
@@ -25,7 +45,10 @@ pub async fn setup_app() -> Router {
 
     let config = config::Config::for_test(url);
     let state = Arc::new(AppState::from_parts(config, pool));
-    api::router(state)
+    TestApp {
+        app: api::router(state),
+        _guard: guard,
+    }
 }
 
 /// 不连接数据库的 Router；适用于 `/health` 等无 DB 依赖的测试。
