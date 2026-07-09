@@ -25,6 +25,22 @@ pub async fn find_by_username(
     Ok(user)
 }
 
+pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<User>, AppError> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, username, display_name, birthday, max_proactive_per_day
+        FROM users
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(user)
+}
+
 pub async fn insert<'e, E>(
     executor: E,
     id: &str,

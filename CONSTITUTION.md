@@ -140,9 +140,11 @@ db → 无上层依赖
 - 在能用 `From` / `Into` 且没有较大负面影响的情况下，**优先使用** `From` / `Into`，而非手写 `into_xxx()` / `to_xxx()`
 - `impl From` 放在被转换目标类型附近（如 `impl From<User> for UserResponse` 与 `UserResponse` 同文件）
 
-### 6.5 待办（已知例外）
+### 6.5 鉴权实现
 
-- `UserResponse` 暂留 `api/rest/auth.rs`；实现 `GET /me` 时再迁移到 `api/rest/users.rs`
+- 公开路由（`/health`、`/auth/*`）与受保护路由分组；受保护组挂 `require_auth` 中间件（`api/middleware.rs`）
+- 中间件校验 Bearer Token、查 `user_sessions`，将 `User` 注入 request extensions
+- Handler 通过 `AuthUser` extractor（`api/extractors.rs`）获取当前用户
 
 ---
 

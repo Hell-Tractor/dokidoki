@@ -26,3 +26,23 @@ where
 
     Ok(())
 }
+
+pub async fn find_user_id_by_token_hash(
+    pool: &sqlx::MySqlPool,
+    token_hash: &str,
+) -> Result<Option<String>, AppError> {
+    let user_id = sqlx::query_scalar(
+        r#"
+        SELECT user_id
+        FROM user_sessions
+        WHERE token_hash = ?
+          AND (expires_at IS NULL OR expires_at > NOW(6))
+        "#,
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(user_id)
+}

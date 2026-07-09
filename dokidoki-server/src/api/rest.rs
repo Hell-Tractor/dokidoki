@@ -1,12 +1,21 @@
 use std::sync::Arc;
 
-use crate::state::AppState;
+use axum::middleware;
+
+use crate::{api::middleware::require_auth, state::AppState};
 
 mod auth;
 mod health;
+mod users;
 
-pub fn api() -> axum::Router<Arc<AppState>> {
-    axum::Router::new()
+pub fn api(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
+    let public = axum::Router::new()
         .merge(health::api())
-        .nest("/auth", auth::api())
+        .nest("/auth", auth::api());
+
+    let protected = axum::Router::new()
+        .merge(users::api())
+        .layer(middleware::from_fn_with_state(state, require_auth));
+
+    public.merge(protected)
 }

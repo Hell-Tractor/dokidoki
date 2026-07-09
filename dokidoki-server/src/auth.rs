@@ -128,3 +128,13 @@ fn hash_token(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+pub async fn authenticate(pool: &MySqlPool, token: &str) -> Result<User, AppError> {
+    let token_hash = hash_token(token);
+    let user_id = queries::sessions::find_user_id_by_token_hash(pool, &token_hash)
+        .await?
+        .ok_or_else(AppError::invalid_token)?;
+    queries::users::find_by_id(pool, &user_id)
+        .await?
+        .ok_or_else(AppError::invalid_token)
+}

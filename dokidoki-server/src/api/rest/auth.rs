@@ -11,6 +11,8 @@ use crate::{
     state::AppState,
 };
 
+use super::users::UserResponse;
+
 pub fn api() -> axum::Router<Arc<AppState>> {
     axum::Router::new()
         .route("/register", post(register))
@@ -37,31 +39,9 @@ struct LoginRequest {
 }
 
 #[derive(Serialize)]
-struct UserResponse {
-    id: String,
-    username: String,
-    display_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    birthday: Option<NaiveDate>,
-    max_proactive_per_day: u32,
-}
-
-#[derive(Serialize)]
 struct AuthResponse {
     token: String,
     user: UserResponse,
-}
-
-impl From<crate::db::models::User> for UserResponse {
-    fn from(user: crate::db::models::User) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            display_name: user.display_name,
-            birthday: user.birthday,
-            max_proactive_per_day: user.max_proactive_per_day as u32,
-        }
-    }
 }
 
 async fn register(

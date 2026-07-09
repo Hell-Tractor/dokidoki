@@ -2,12 +2,45 @@ use std::ops::Deref;
 
 use axum::{
     Json,
-    extract::{FromRequest, Request},
+    extract::{FromRequest, FromRequestParts, Request},
+    http::request::Parts,
 };
 use serde::de::DeserializeOwned;
 use validator::Validate;
 
-use crate::error::AppError;
+use crate::{db::models::User, error::AppError};
+
+/// 由 `require_auth` 中间件注入，供 `AuthUser` extractor 读取。
+#[derive(Clone)]
+pub(crate) struct AuthContext {
+    pub user: User,
+}
+
+/// 当前已鉴权用户；须挂在受 `require_auth` 保护的路由上。
+pub struct AuthUser(pub User);
+
+impl Deref for AuthUser {
+    type Target = User;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<AuthContext>()
+            .map(|ctx| AuthUser(ctx.user.clone()))
+            .ok_or_else(AppError::invalid_token)
+    }
+}
 
 /// 反序列化 JSON 请求体并执行 `validator` 校验。
 ///
