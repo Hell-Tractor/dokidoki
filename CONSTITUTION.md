@@ -188,7 +188,16 @@ db → 无上层依赖
 - 使用 **Conventional Commits**：`feat:`、`fix:`、`docs:`、`refactor:` 等
 - 示例：`feat: add POST /auth/login`、`fix: resolve OsRng import with rand_core`
 
-### 10.3 文档
+### 10.3 测试
+
+- **每个 REST API 须有对应集成测试**（`tests/<domain>_api.rs`）
+- 集成测试使用真实 MySQL，通过环境变量 `TEST_DATABASE_URL` 连接（如 `mysql://user:pass@127.0.0.1:3306/dokidoki_test`）
+- 运行：`TEST_DATABASE_URL=... cargo test --test auth_api`
+- 测试辅助代码放 `src/test_support.rs`；HTTP 断言 helper 放 `tests/common/mod.rs`
+- 目标：新增 API 对应模块行覆盖率 **> 90%**（`cargo llvm-cov` 度量）
+- MVP 阶段 auth 等 DB 密集型接口用集成测试；纯函数（hash/verify）可补单元测试
+
+### 10.4 文档
 
 - 需求、接口、架构细节以 `docs/` 为准
 - 新增或变更**实现约定**时，同步更新本文件

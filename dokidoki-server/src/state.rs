@@ -17,6 +17,10 @@ impl AppState {
 
         Ok(AppState { config, db })
     }
+
+    pub fn from_parts(config: config::Config, db: sqlx::MySqlPool) -> Self {
+        Self { config, db }
+    }
 }
 
 async fn init_database(url: &str) -> Result<sqlx::MySqlPool> {

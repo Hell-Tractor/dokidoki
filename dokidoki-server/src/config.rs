@@ -21,6 +21,51 @@ impl Config {
         let config: Config = toml::from_str(&config_str)?;
         Ok(config)
     }
+
+    /// 集成测试用配置；`password_cost` 取较低值以加快 argon2。
+    pub fn for_test(database_url: impl Into<String>) -> Self {
+        Self {
+            server: Server {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth: Auth {
+                password_cost: 4,
+                token_prefix: "doki_".into(),
+            },
+            database: Database {
+                url: database_url.into(),
+            },
+            llm: Llm {
+                base_url: "http://localhost".into(),
+                api_key: "test".into(),
+                model: "test".into(),
+                vision_model: "test".into(),
+            },
+            upload: Upload {
+                dir: "/tmp".into(),
+                max_bytes: 1024,
+                allowed_types: vec!["image/png".into()],
+            },
+            chat: Chat {
+                burst_silence_ms: 1,
+                min_reply_delay_ms: 1,
+                max_reply_delay_ms: 1,
+                bubble_delay_base_ms: 1,
+                bubble_delay_per_char_ms: 1,
+            },
+            summary: Summary {
+                trigger_turns: 1,
+                keep_recent_turns: 1,
+            },
+            push: Push {
+                fcm_credentials_path: "/tmp/fcm.json".into(),
+            },
+            proactive: Proactive {
+                default_max_per_day: 20,
+            },
+        }
+    }
 }
 
 #[derive(Deserialize)]
