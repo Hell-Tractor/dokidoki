@@ -2,7 +2,7 @@
 
 按前后端分列；`- [x]` 已完成，`- [ ]` 未完成。优先级：P0 → P1 → P2+。
 
-> **当前里程碑**：后端「基础聊天」已打通（Fake LLM + WS 推送）→ **可启动 Flutter 前端**。
+> **当前里程碑**：前端 M-01（连接与鉴权）已完成 → **下一步 M-02（会话列表）**。
 
 ---
 
@@ -146,26 +146,26 @@
 
 ## 前端（dokidoki-app）
 
-> **可启动**。后端 REST 发消息 + WS 收角色回复已就绪。
+> M-01 已完成；下一步实现 HomePage 与会话列表（M-02）。
 
 ### 项目骨架
 
-- [ ] Flutter 工程初始化（Android 优先）
-- [ ] 路由（go_router 等）
-- [ ] 全局状态（Riverpod：`apiClientProvider`、`wsClientProvider`、`authConfigProvider` 等）
-- [ ] API 客户端（dio + Bearer Token 注入）
-- [ ] WebSocket 客户端（自动重连、subscribe）
-- [ ] SecureStorage（Token）+ SharedPreferences（Server URL）
+- [x] Flutter 工程初始化（Android 优先）
+- [x] 路由（go_router）
+- [x] 全局状态（Riverpod：`apiClientProvider`、`wsClientProvider`、`authConfigProvider` 等）
+- [x] API 客户端（dio + Bearer Token 注入）
+- [x] WebSocket 客户端（自动重连、subscribe）
+- [x] SecureStorage（Token）+ SharedPreferences（Server URL）
 
 ### M-01 连接与鉴权（P0）
 
-- [ ] P-01 SplashPage：读配置，决定跳转 Setup / Home
-- [ ] P-02 SetupPage 步骤 1：Server URL + `GET /health` 测试连接
-- [ ] P-02 SetupPage 步骤 2：注册 / 登录 Tab
-- [ ] 注册表单（username、password 二次确认、display_name、birthday、**timezone**）
-- [ ] 登录表单
-- [ ] Token 持久化；401 清 Token 回 Setup
-- [ ] 不含 LLM API Key（FR-01-03）
+- [x] P-01 SplashPage：读配置，决定跳转 Setup / Home
+- [x] P-02 SetupPage 步骤 1：Server URL + `GET /health` 测试连接
+- [x] P-02 SetupPage 步骤 2：注册 / 登录 Tab
+- [x] 注册表单（username、password 二次确认、display_name、birthday、**timezone**）
+- [x] 登录表单
+- [x] Token 持久化；401 清 Token 回 Setup
+- [x] 不含 LLM API Key（FR-01-03）
 
 ### M-26 用户档案（P1）
 
