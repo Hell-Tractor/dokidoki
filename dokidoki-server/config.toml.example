@@ -11,6 +11,8 @@ token_prefix = "doki_"
 url = "mysql://dokidoki:password@mysql:3306/dokidoki"
 
 [llm]
+mode = "fake"                           # fake | http
+fake_default = "[REPLY] 你好，我是测试角色"
 base_url = "https://api.deepseek.com/v1"
 api_key = "sk-..."
 model = "deepseek-chat"

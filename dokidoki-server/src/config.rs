@@ -37,6 +37,8 @@ impl Config {
                 url: database_url.into(),
             },
             llm: Llm {
+                mode: "fake".into(),
+                fake_default: "[REPLY]".into(),
                 base_url: "http://localhost".into(),
                 api_key: "test".into(),
                 model: "test".into(),
@@ -87,6 +89,8 @@ pub struct Database {
 
 #[derive(Deserialize)]
 pub struct Llm {
+    pub mode: String,
+    pub fake_default: String,
     pub base_url: String,
     pub api_key: String,
     pub model: String,

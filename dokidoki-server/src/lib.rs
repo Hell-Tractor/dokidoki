@@ -1,9 +1,12 @@
 pub mod api;
+pub mod chat;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod llm;
 pub mod state;
 pub mod time;
+pub mod ws_hub;
 
 pub(crate) mod db;
 

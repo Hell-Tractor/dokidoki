@@ -2,6 +2,8 @@
 
 按前后端分列；`- [x]` 已完成，`- [ ]` 未完成。优先级：P0 → P1 → P2+。
 
+> **当前里程碑**：后端「基础聊天」已打通（Fake LLM + WS 推送）→ **可启动 Flutter 前端**。
+
 ---
 
 ## 后端（dokidoki-server）
@@ -12,6 +14,8 @@
 - [x] 统一响应 `{ data }` / `{ error }`（`ApiResponse`、`AppError`）
 - [x] `ValidatedJson` 请求校验
 - [x] 集成测试框架（`TEST_DATABASE_URL`、`test_support`）
+- [x] MySQL 会话固定 UTC（`db/pool` `SET time_zone = '+00:00'`）
+- [x] `time` 模块（用户时区日界线、勿扰判断）
 - [ ] Docker Compose 部署（server + mysql + caddy）
 - [ ] `config.toml.example` 与部署文档
 
@@ -29,7 +33,8 @@
 ### M-26 用户档案（P1）
 
 - [x] `GET /me`
-- [x] `PATCH /me`（display_name、birthday、max_proactive_per_day）
+- [x] `PATCH /me`（display_name、birthday、timezone、max_proactive_per_day）
+- [x] 注册必填 `timezone`（IANA；客户端默认设备时区）
 - [ ] 支持 PATCH 清空 birthday（`null` 语义）
 
 ### M-02 多角色会话（P0）
@@ -37,28 +42,39 @@
 - [x] `GET /characters`
 - [x] `GET /conversations`
 - [x] `POST /conversations`（幂等创建；破冰待 M-28）
-- [ ] 角色种子数据 / 迁移
+- [x] 角色种子数据（`seeds/dev_characters.sql`；开发手动执行，不进 migration）
 
 ### M-03 / M-04 消息（P0）
 
 - [x] `GET /conversations/{id}/messages`（分页）
 - [x] `POST /conversations/{id}/messages`（文本）
+- [x] 用户发文本后触发角色回复（Fake LLM）
 - [ ] `POST /conversations/{id}/messages/image`（multipart）
 - [ ] `GET /messages/{id}/image`（鉴权 + 归属校验）
 - [ ] 图片本地存储（`/data/uploads`）
 
+### 基础聊天（P0，前端启动前）
+
+- [x] `llm` 模块：`LlmClient` + `FakeLlmClient`
+- [x] `config.llm.mode = "fake"` + `fake_default`
+- [x] `POST /dev/llm/queue`（debug 构建；预设下一条 LLM 输出）
+- [x] `chat` 模块：`on_user_text_sent` → Fake LLM → 解析 `[REPLY]` → 落库
+- [x] `chat/parser.rs`：`[REPLY]` + `|||` 分气泡
+- [x] `ws_hub` + `GET /api/v1/ws` 鉴权
+- [x] WS：`connected` / `subscribe` / `ping` / `pong`
+- [x] WS 推送：`message`（角色回复）
+- [x] 集成测试：`tests/chat_api.rs`（DB + WS）
+- [ ] _暂不做_：burst、回复延迟、typing、`send_message` WS 发送、真 HTTP LLM
+
 ### M-08 用户设置（P1）
 
 - [ ] `GET /characters/{id}/settings`
-- [ ] `PUT /characters/{id}/settings`（勿扰时段）
+- [ ] `PUT /characters/{id}/settings`（勿扰时段，结合 `users.timezone`）
 
-### WebSocket（P0）
+### WebSocket（P0，扩展）
 
-- [ ] `GET /api/v1/ws` 连接与鉴权
-- [ ] 事件：`connected`
-- [ ] 客户端 → `subscribe` / `send_message` / `ping`
-- [ ] 服务端 → `message` / `character_typing` / `message_read` / `turn_cancelled` / `conversation_status`
-- [ ] `pong` 心跳
+- [ ] 客户端 → `send_message`（与 REST 二选一，可后补）
+- [ ] 服务端 → `character_typing` / `message_read` / `turn_cancelled` / `conversation_status`
 
 ### M-05 角色人设（P0）
 
@@ -79,7 +95,6 @@
 - [ ] `chat/burst.rs`：静默窗口合并、turn 管理
 - [ ] `chat/delivery.rs`：多气泡分时投递
 - [ ] `chat/reply_scheduler.rs`：回复延迟队列
-- [ ] `chat/parser.rs`：LLM 动作头解析
 - [ ] `chat/conversation_fsm.rs`：active / winding_down / paused
 
 ### M-14 选择性回复（P1）
@@ -112,8 +127,8 @@
 ### M-07 主动消息（P1）
 
 - [ ] `proactive` 模块：六类触发器
-- [ ] 全局日上限校验（`max_proactive_per_day`）
-- [ ] 勿扰时段校验
+- [ ] 全局日上限校验（`max_proactive_per_day`，按用户时区自然日）
+- [ ] 勿扰时段校验（`users.timezone` + 本地墙钟）
 - [ ] `scheduler` 定时任务
 
 ### 推送与设备（P1）
@@ -124,14 +139,14 @@
 
 ### 外部适配器
 
-- [ ] `llm` 模块：OpenAI 兼容 HTTP 客户端
+- [ ] `llm` 模块：OpenAI 兼容 HTTP 客户端（`mode = "http"`）
 - [ ] `llm/vision.rs`：图片多模态
 
 ---
 
 ## 前端（dokidoki-app）
 
-> Flutter 客户端尚未创建；以下均为待办。
+> **可启动**。后端 REST 发消息 + WS 收角色回复已就绪。
 
 ### 项目骨架
 
@@ -147,14 +162,14 @@
 - [ ] P-01 SplashPage：读配置，决定跳转 Setup / Home
 - [ ] P-02 SetupPage 步骤 1：Server URL + `GET /health` 测试连接
 - [ ] P-02 SetupPage 步骤 2：注册 / 登录 Tab
-- [ ] 注册表单（username、password 二次确认、display_name、birthday）
+- [ ] 注册表单（username、password 二次确认、display_name、birthday、**timezone**）
 - [ ] 登录表单
 - [ ] Token 持久化；401 清 Token 回 Setup
 - [ ] 不含 LLM API Key（FR-01-03）
 
 ### M-26 用户档案（P1）
 
-- [ ] P-05 SettingsPage：称呼、生日编辑（`PATCH /me`）
+- [ ] P-05 SettingsPage：称呼、生日、时区编辑（`PATCH /me`）
 - [ ] 全局主动消息日上限 Stepper
 
 ### M-02 多角色会话（P0）
@@ -168,7 +183,8 @@
 
 - [ ] P-04 ChatPage：消息列表分页（`GET /messages`）
 - [ ] WS `subscribe(conversation_id)`
-- [ ] 文本发送（每条独立 `POST`，不客户端合并）
+- [ ] 文本发送（`POST /messages`；后续可切 WS `send_message`）
+- [ ] 收角色回复（WS `message`）
 - [ ] 图片发送（相册/相机 + 可选 caption）
 - [ ] 图片气泡展示与全屏预览
 - [ ] 双方头像（连续同方仅首条显示）
@@ -212,5 +228,5 @@
 
 - [x] 需求 / 概要 / 详细 / 接口设计说明书
 - [x] Prompt 规范
-- [x] `CONSTITUTION.md` 实现约定
+- [x] `CONSTITUTION.md` 实现约定（含 §8.1 时区）
 - [ ] README 部署与开发指南（MVP 完成后）

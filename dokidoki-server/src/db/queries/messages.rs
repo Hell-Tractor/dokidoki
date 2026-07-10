@@ -112,6 +112,58 @@ pub async fn list_page(
     Ok((rows, has_more))
 }
 
+pub async fn insert_character_text(
+    pool: &MySqlPool,
+    id: &str,
+    conversation_id: &str,
+    content: &str,
+    turn_id: &str,
+    seq_in_turn: i32,
+    reply_to_id: Option<&str>,
+) -> Result<Message, AppError> {
+    sqlx::query(
+        r#"
+        INSERT INTO messages (
+            id, conversation_id, role, content, content_type, turn_id, seq_in_turn, reply_to_id
+        )
+        VALUES (?, ?, 'character', ?, 'text', ?, ?, ?)
+        "#,
+    )
+    .bind(id)
+    .bind(conversation_id)
+    .bind(content)
+    .bind(turn_id)
+    .bind(seq_in_turn)
+    .bind(reply_to_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    let message = sqlx::query_as::<_, Message>(
+        r#"
+        SELECT
+            id,
+            role,
+            content,
+            content_type,
+            turn_id,
+            seq_in_turn,
+            metadata,
+            reply_to_id,
+            read_at,
+            created_at
+        FROM messages
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(message)
+}
+
 pub async fn insert_user_text(
     pool: &MySqlPool,
     id: &str,

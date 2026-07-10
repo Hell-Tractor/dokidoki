@@ -199,5 +199,12 @@ async fn create_message(
     )
     .await?;
 
+    state.chat.on_user_text_sent(
+        &user.id,
+        &conversation_id,
+        &message.turn_id,
+        &message.id,
+    );
+
     Ok(ApiResponse::accepted(message.into()))
 }

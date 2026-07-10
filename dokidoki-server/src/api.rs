@@ -6,6 +6,7 @@ mod extractors;
 mod middleware;
 mod rest;
 mod response;
+mod ws;
 
 pub use extractors::{AuthUser, ValidatedJson};
 

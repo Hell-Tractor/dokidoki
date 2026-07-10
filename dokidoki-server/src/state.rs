@@ -1,10 +1,15 @@
-use crate::{config, error::Result};
+use std::sync::Arc;
+
+use crate::{chat::ChatService, config, error::Result, llm::LlmClient, ws_hub::WsHub};
 
 const CONFIG_PATH: &str = "config.toml";
 
 pub struct AppState {
     pub config: config::Config,
     pub db: sqlx::MySqlPool,
+    pub llm: Arc<LlmClient>,
+    pub ws_hub: Arc<WsHub>,
+    pub chat: Arc<ChatService>,
 }
 
 impl AppState {
@@ -15,11 +20,20 @@ impl AppState {
 
         let db = init_database(&config.database.url).await?;
 
-        Ok(AppState { config, db })
+        Ok(Self::from_parts(config, db))
     }
 
     pub fn from_parts(config: config::Config, db: sqlx::MySqlPool) -> Self {
-        Self { config, db }
+        let llm = Arc::new(LlmClient::from_config(&config.llm));
+        let ws_hub = Arc::new(WsHub::new());
+        let chat = Arc::new(ChatService::new(db.clone(), llm.clone(), ws_hub.clone()));
+        Self {
+            config,
+            db,
+            llm,
+            ws_hub,
+            chat,
+        }
     }
 }
 
