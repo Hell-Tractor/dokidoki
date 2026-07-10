@@ -7,13 +7,16 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use sqlx::MySqlPool;
+use tokio::sync::OnceCell;
 
 use crate::{api, config, state::AppState};
 
 static DB_TEST_LOCK: Mutex<()> = Mutex::new(());
+static SHARED_POOL: OnceCell<MySqlPool> = OnceCell::const_new();
 
 pub struct TestApp {
     pub app: Router,
+    pub pool: MySqlPool,
     _guard: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -31,22 +34,22 @@ impl DerefMut for TestApp {
     }
 }
 
-/// 连接测试库、跑迁移、清空 auth 相关表，返回可 `oneshot` 的 Router。
+/// 清空测试表并返回可 `oneshot` 的 Router。连接池与迁移在进程内只初始化一次。
 pub async fn setup_app() -> TestApp {
     let guard = DB_TEST_LOCK.lock().expect("test db lock poisoned");
+
+    let pool = shared_test_pool().await;
+    reset_test_tables(&pool).await;
 
     let url = std::env::var("TEST_DATABASE_URL").expect(
         "TEST_DATABASE_URL is required for integration tests \
          (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
     );
-
-    let pool = init_test_database(&url).await;
-    reset_test_tables(&pool).await;
-
     let config = config::Config::for_test(url);
-    let state = Arc::new(AppState::from_parts(config, pool));
+    let state = Arc::new(AppState::from_parts(config, pool.clone()));
     TestApp {
         app: api::router(state),
+        pool,
         _guard: guard,
     }
 }
@@ -57,6 +60,19 @@ pub fn setup_app_without_db() -> Router {
     let pool = MySqlPool::connect_lazy(&config.database.url).expect("lazy pool");
     let state = Arc::new(AppState::from_parts(config, pool));
     api::router(state)
+}
+
+async fn shared_test_pool() -> MySqlPool {
+    SHARED_POOL
+        .get_or_init(|| async {
+            let url = std::env::var("TEST_DATABASE_URL").expect(
+                "TEST_DATABASE_URL is required for integration tests \
+                 (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
+            );
+            init_test_database(&url).await
+        })
+        .await
+        .clone()
 }
 
 async fn init_test_database(url: &str) -> MySqlPool {
@@ -72,58 +88,28 @@ async fn init_test_database(url: &str) -> MySqlPool {
 
 /// 清空集成测试涉及的表，保证用例之间隔离。
 pub async fn reset_test_tables(pool: &MySqlPool) {
-    sqlx::query("SET FOREIGN_KEY_CHECKS = 0")
-        .execute(pool)
-        .await
-        .expect("disable foreign key checks");
-    sqlx::query("TRUNCATE TABLE messages")
-        .execute(pool)
-        .await
-        .expect("truncate messages");
-    sqlx::query("TRUNCATE TABLE conversations")
-        .execute(pool)
-        .await
-        .expect("truncate conversations");
-    sqlx::query("TRUNCATE TABLE proactive_logs")
-        .execute(pool)
-        .await
-        .expect("truncate proactive_logs");
-    sqlx::query("TRUNCATE TABLE user_memories")
-        .execute(pool)
-        .await
-        .expect("truncate user_memories");
-    sqlx::query("TRUNCATE TABLE user_character_settings")
-        .execute(pool)
-        .await
-        .expect("truncate user_character_settings");
-    sqlx::query("TRUNCATE TABLE character_states")
-        .execute(pool)
-        .await
-        .expect("truncate character_states");
-    sqlx::query("TRUNCATE TABLE characters")
-        .execute(pool)
-        .await
-        .expect("truncate characters");
-    sqlx::query("TRUNCATE TABLE user_sessions")
-        .execute(pool)
-        .await
-        .expect("truncate user_sessions");
-    sqlx::query("TRUNCATE TABLE users")
-        .execute(pool)
-        .await
-        .expect("truncate users");
-    sqlx::query("SET FOREIGN_KEY_CHECKS = 1")
-        .execute(pool)
-        .await
-        .expect("enable foreign key checks");
+    sqlx::raw_sql(
+        "\
+        SET FOREIGN_KEY_CHECKS = 0;
+        TRUNCATE TABLE messages;
+        TRUNCATE TABLE conversations;
+        TRUNCATE TABLE proactive_logs;
+        TRUNCATE TABLE user_memories;
+        TRUNCATE TABLE user_character_settings;
+        TRUNCATE TABLE character_states;
+        TRUNCATE TABLE characters;
+        TRUNCATE TABLE user_sessions;
+        TRUNCATE TABLE users;
+        SET FOREIGN_KEY_CHECKS = 1;
+        ",
+    )
+    .execute(pool)
+    .await
+    .expect("reset test tables");
 }
 
 pub async fn test_pool() -> MySqlPool {
-    let url = std::env::var("TEST_DATABASE_URL").expect(
-        "TEST_DATABASE_URL is required for integration tests \
-         (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
-    );
-    init_test_database(&url).await
+    shared_test_pool().await
 }
 
 pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {

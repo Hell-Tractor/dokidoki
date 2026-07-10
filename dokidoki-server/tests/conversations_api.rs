@@ -5,7 +5,7 @@ use dokidoki_server::test_support::{
     http::{
         get_with_auth, post_json, post_json_with_auth, register_body, unique_username,
     },
-    insert_test_character, setup_app, test_pool,
+    insert_test_character, setup_app,
 };
 
 async fn register_and_token(app: &mut dokidoki_server::test_support::TestApp) -> String {
@@ -33,8 +33,7 @@ async fn list_characters_returns_empty_array() {
 #[tokio::test]
 async fn list_characters_returns_characters() {
     let mut app = setup_app().await;
-    let pool = test_pool().await;
-    let character_id = insert_test_character(&pool, "小咲").await;
+    let character_id = insert_test_character(&app.pool, "小咲").await;
     let token = register_and_token(&mut app).await;
 
     let (status, body) = get_with_auth(&mut app, "/api/v1/characters", &token).await;
@@ -51,8 +50,7 @@ async fn list_characters_returns_characters() {
 #[tokio::test]
 async fn create_conversation_returns_201() {
     let mut app = setup_app().await;
-    let pool = test_pool().await;
-    let character_id = insert_test_character(&pool, "凛").await;
+    let character_id = insert_test_character(&app.pool, "凛").await;
     let token = register_and_token(&mut app).await;
 
     let (status, body) = post_json_with_auth(
@@ -72,8 +70,7 @@ async fn create_conversation_returns_201() {
 #[tokio::test]
 async fn create_conversation_is_idempotent() {
     let mut app = setup_app().await;
-    let pool = test_pool().await;
-    let character_id = insert_test_character(&pool, "凛").await;
+    let character_id = insert_test_character(&app.pool, "凛").await;
     let token = register_and_token(&mut app).await;
 
     let (first_status, first_body) = post_json_with_auth(
@@ -118,8 +115,7 @@ async fn create_conversation_unknown_character_returns_404() {
 #[tokio::test]
 async fn list_conversations_returns_user_conversations() {
     let mut app = setup_app().await;
-    let pool = test_pool().await;
-    let character_id = insert_test_character(&pool, "小咲").await;
+    let character_id = insert_test_character(&app.pool, "小咲").await;
     let token = register_and_token(&mut app).await;
 
     post_json_with_auth(
