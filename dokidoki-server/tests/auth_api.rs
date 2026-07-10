@@ -40,6 +40,7 @@ async fn register_with_display_name_and_birthday() {
             "password": "secret123",
             "display_name": "小明",
             "birthday": "2000-01-01",
+            "timezone": "Asia/Shanghai",
         }),
     )
     .await;
@@ -48,6 +49,44 @@ async fn register_with_display_name_and_birthday() {
     let data = &body["data"];
     assert_eq!(data["user"]["display_name"], "小明");
     assert_eq!(data["user"]["birthday"], "2000-01-01");
+    assert_eq!(data["user"]["timezone"], "Asia/Shanghai");
+}
+
+#[tokio::test]
+async fn register_invalid_timezone_returns_400() {
+    let mut app = setup().await;
+    let username = unique_username("bad_tz");
+
+    let (status, body) = post_json(
+        &mut app,
+        "/api/v1/auth/register",
+        json!({
+            "username": username,
+            "password": "secret123",
+            "timezone": "Not/AZone",
+        }),
+    )
+    .await;
+
+    assert_error(status, &body, StatusCode::BAD_REQUEST, "BAD_REQUEST");
+}
+
+#[tokio::test]
+async fn register_missing_timezone_returns_400() {
+    let mut app = setup().await;
+    let username = unique_username("no_tz");
+
+    let (status, body) = post_json(
+        &mut app,
+        "/api/v1/auth/register",
+        json!({
+            "username": username,
+            "password": "secret123",
+        }),
+    )
+    .await;
+
+    assert_error(status, &body, StatusCode::BAD_REQUEST, "BAD_REQUEST");
 }
 
 #[tokio::test]

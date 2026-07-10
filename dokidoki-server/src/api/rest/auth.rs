@@ -9,6 +9,7 @@ use crate::{
     api::{response::ApiResponse, response::ApiResult, ValidatedJson},
     domain::auth::{self, AuthSession, LoginInput, RegisterInput},
     state::AppState,
+    time::is_valid_timezone,
 };
 
 use super::users::UserResponse;
@@ -17,6 +18,14 @@ pub fn api() -> axum::Router<Arc<AppState>> {
     axum::Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+}
+
+fn validate_timezone(timezone: &str) -> Result<(), validator::ValidationError> {
+    if is_valid_timezone(timezone) {
+        Ok(())
+    } else {
+        Err(validator::ValidationError::new("invalid_timezone"))
+    }
 }
 
 #[derive(Deserialize, Validate)]
@@ -28,6 +37,8 @@ struct RegisterRequest {
     #[validate(length(max = 64))]
     display_name: Option<String>,
     birthday: Option<NaiveDate>,
+    #[validate(length(min = 1, max = 64), custom(function = "validate_timezone"))]
+    timezone: String,
 }
 
 #[derive(Deserialize, Validate)]
@@ -45,6 +56,7 @@ impl From<RegisterRequest> for RegisterInput {
             password: body.password,
             display_name: body.display_name,
             birthday: body.birthday,
+            timezone: body.timezone,
         }
     }
 }

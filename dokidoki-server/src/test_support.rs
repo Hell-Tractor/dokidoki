@@ -76,7 +76,7 @@ async fn shared_test_pool() -> MySqlPool {
 }
 
 async fn init_test_database(url: &str) -> MySqlPool {
-    let pool = MySqlPool::connect(url)
+    let pool = crate::db::pool::connect(url)
         .await
         .expect("connect to TEST_DATABASE_URL");
     sqlx::migrate!("./migrations")

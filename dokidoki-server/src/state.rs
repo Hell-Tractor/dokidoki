@@ -25,7 +25,7 @@ impl AppState {
 
 async fn init_database(url: &str) -> Result<sqlx::MySqlPool> {
     tracing::info!("Connecting to database");
-    let pool = sqlx::MySqlPool::connect(url).await?;
+    let pool = crate::db::pool::connect(url).await?;
     tracing::info!("Running database migrations");
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Database ready");

@@ -7,6 +7,7 @@ CREATE TABLE users (
     password_hash   VARCHAR(255) NOT NULL,
     display_name    VARCHAR(64)  NOT NULL,
     birthday        DATE         NULL,
+    timezone        VARCHAR(64)  NOT NULL DEFAULT 'UTC' COMMENT 'IANA timezone, e.g. Asia/Shanghai',
     max_proactive_per_day INT    NOT NULL DEFAULT 20,
     created_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -37,8 +38,8 @@ CREATE TABLE characters (
 CREATE TABLE user_character_settings (
     user_id         CHAR(36)     NOT NULL,
     character_id    CHAR(36)     NOT NULL,
-    dnd_start       TIME         NULL,
-    dnd_end         TIME         NULL,
+    dnd_start       TIME         NULL COMMENT 'User local wall clock (users.timezone)',
+    dnd_end         TIME         NULL COMMENT 'Wraps local midnight when start > end',
     push_muted      TINYINT(1)   NOT NULL DEFAULT 0,
     updated_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (user_id, character_id),

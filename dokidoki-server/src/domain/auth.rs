@@ -19,6 +19,7 @@ pub struct RegisterInput {
     pub password: String,
     pub display_name: Option<String>,
     pub birthday: Option<NaiveDate>,
+    pub timezone: String,
 }
 
 pub struct LoginInput {
@@ -43,6 +44,7 @@ pub async fn register(
 
     let password_hash = hash_password(&input.password, auth_config.password_cost)?;
     let user_id = Uuid::new_v4().to_string();
+    let timezone = crate::time::parse_timezone(&input.timezone)?.to_string();
 
     let mut tx = pool.begin().await.map_err(AppError::internal)?;
 
@@ -53,6 +55,7 @@ pub async fn register(
         &password_hash,
         &display_name,
         input.birthday,
+        &timezone,
     )
     .await?;
 

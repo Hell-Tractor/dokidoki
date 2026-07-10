@@ -199,9 +199,23 @@ db → 无上层依赖
 | 字段 | 类型 |
 |------|------|
 | `birthday` | `chrono::NaiveDate`，API 与 DB 均为 `Option<NaiveDate>` |
+| `timezone` | IANA 字符串（如 `Asia/Shanghai`）；注册必填，可 `PATCH /me` 更新 |
 | `display_name` | 注册时 `Option<String>`；空则默认 `username` |
 | `max_proactive_per_day` | DB `i32`；API Response `u32` |
 | `Message.metadata` | 字段 `pub(crate)`，仅 `db/queries` 可读写（sqlx）；读取须通过 `Message` 上的 helper（如 `media_url()`） |
+| 绝对时刻（`created_at`、`read_at`、`dnd_*` 等） | `chrono::DateTime<Utc>`；DB `DATETIME(6)` 存 UTC 墙钟；API 为 RFC 3339（带 `Z`） |
+
+### 8.1 时区约定
+
+| 语义 | 约定 |
+|------|------|
+| **存储** | 所有绝对时刻按 UTC；MySQL 连接池 `after_connect` 执行 `SET time_zone = '+00:00'` |
+| **传输** | REST / WebSocket 时间字段一律 UTC ISO 8601；展示由客户端转本地 |
+| **日历** | `birthday` 等用 `DATE` / `NaiveDate`，不含时区 |
+| **角色日程** | `characters.schedule_json.timezone`（IANA）；Schedule Engine 在该时区解析 `HH:MM` |
+| **用户本地语义** | `users.timezone`（IANA）；勿扰、日上限、生日等按用户时区计算（`time` 模块） |
+| **用户勿扰** | 存用户本地墙钟 `TIME`；服务端结合 `users.timezone` 判断 |
+| **日上限 / 特殊日期** | 按 **用户时区自然日**（`time::user_day_bounds`） |
 
 ---
 

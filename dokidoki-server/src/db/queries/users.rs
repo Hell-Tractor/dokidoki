@@ -12,7 +12,7 @@ pub async fn find_by_username(
 ) -> Result<Option<UserCredentials>, AppError> {
     let user = sqlx::query_as::<_, UserCredentials>(
         r#"
-        SELECT id, username, password_hash, display_name, birthday, max_proactive_per_day
+        SELECT id, username, password_hash, display_name, birthday, timezone, max_proactive_per_day
         FROM users
         WHERE username = ?
         "#,
@@ -28,7 +28,7 @@ pub async fn find_by_username(
 pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<User>, AppError> {
     let user = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, username, display_name, birthday, max_proactive_per_day
+        SELECT id, username, display_name, birthday, timezone, max_proactive_per_day
         FROM users
         WHERE id = ?
         "#,
@@ -44,6 +44,7 @@ pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<User>, AppE
 pub(crate) struct UpdateMeParams {
     pub display_name: Option<String>,
     pub birthday: Option<NaiveDate>,
+    pub timezone: Option<String>,
     pub max_proactive_per_day: Option<i32>,
 }
 
@@ -57,6 +58,7 @@ pub async fn update_profile(
         .display_name
         .unwrap_or_else(|| current.display_name.clone());
     let birthday = params.birthday.or(current.birthday);
+    let timezone = params.timezone.unwrap_or_else(|| current.timezone.clone());
     let max_proactive_per_day = params
         .max_proactive_per_day
         .unwrap_or(current.max_proactive_per_day);
@@ -64,12 +66,13 @@ pub async fn update_profile(
     sqlx::query(
         r#"
         UPDATE users
-        SET display_name = ?, birthday = ?, max_proactive_per_day = ?
+        SET display_name = ?, birthday = ?, timezone = ?, max_proactive_per_day = ?
         WHERE id = ?
         "#,
     )
     .bind(&display_name)
     .bind(birthday)
+    .bind(&timezone)
     .bind(max_proactive_per_day)
     .bind(id)
     .execute(pool)
@@ -92,11 +95,12 @@ pub async fn insert(
     password_hash: &str,
     display_name: &str,
     birthday: Option<NaiveDate>,
+    timezone: &str,
 ) -> Result<User, AppError> {
     sqlx::query(
         r#"
-        INSERT INTO users (id, username, password_hash, display_name, birthday)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO users (id, username, password_hash, display_name, birthday, timezone)
+        VALUES (?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(id)
@@ -104,13 +108,14 @@ pub async fn insert(
     .bind(password_hash)
     .bind(display_name)
     .bind(birthday)
+    .bind(timezone)
     .execute(&mut **tx)
     .await
     .map_err(AppError::from_db)?;
 
     sqlx::query_as::<_, User>(
         r#"
-        SELECT id, username, display_name, birthday, max_proactive_per_day
+        SELECT id, username, display_name, birthday, timezone, max_proactive_per_day
         FROM users
         WHERE id = ?
         "#,

@@ -150,6 +150,7 @@ pub fn register_body(username: &str, password: &str) -> Value {
     json!({
         "username": username,
         "password": password,
+        "timezone": "Asia/Shanghai",
     })
 }
 
@@ -167,6 +168,7 @@ pub fn assert_auth_success(status: StatusCode, body: &Value, expected_username: 
     assert_eq!(data["user"]["username"], expected_username);
     assert_eq!(data["user"]["display_name"], expected_username);
     assert_eq!(data["user"]["max_proactive_per_day"], 20);
+    assert_eq!(data["user"]["timezone"], "Asia/Shanghai");
     assert!(data["user"]["id"].as_str().is_some());
 }
 

@@ -6,6 +6,7 @@ pub struct User {
     pub username: String,
     pub display_name: String,
     pub birthday: Option<NaiveDate>,
+    pub timezone: String,
     pub max_proactive_per_day: i32,
 }
 
@@ -16,6 +17,7 @@ pub struct UserCredentials {
     pub password_hash: String,
     pub display_name: String,
     pub birthday: Option<NaiveDate>,
+    pub timezone: String,
     pub max_proactive_per_day: i32,
 }
 
@@ -26,6 +28,7 @@ impl From<UserCredentials> for User {
             username: value.username,
             display_name: value.display_name,
             birthday: value.birthday,
+            timezone: value.timezone,
             max_proactive_per_day: value.max_proactive_per_day,
         }
     }

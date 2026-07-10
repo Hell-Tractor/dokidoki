@@ -11,8 +11,9 @@ use crate::{
         response::{ApiResponse, ApiResult},
     },
     db::models::User,
-    state::AppState,
     domain::users::{self, UpdateProfileInput},
+    state::AppState,
+    time::is_valid_timezone,
 };
 
 pub fn api() -> Router<Arc<AppState>> {
@@ -27,6 +28,7 @@ pub struct UserResponse {
     display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     birthday: Option<NaiveDate>,
+    timezone: String,
     max_proactive_per_day: u32,
 }
 
@@ -37,6 +39,7 @@ impl From<User> for UserResponse {
             username: user.username,
             display_name: user.display_name,
             birthday: user.birthday,
+            timezone: user.timezone,
             max_proactive_per_day: user.max_proactive_per_day as u32,
         }
     }
@@ -50,8 +53,19 @@ struct UpdateMeRequest {
     #[serde(default)]
     birthday: Option<NaiveDate>,
     #[serde(default)]
+    #[validate(custom(function = "validate_timezone_field"))]
+    timezone: Option<String>,
+    #[serde(default)]
     #[validate(range(min = 0, max = 100))]
     max_proactive_per_day: Option<u32>,
+}
+
+fn validate_timezone_field(timezone: &String) -> Result<(), validator::ValidationError> {
+    if is_valid_timezone(timezone) {
+        Ok(())
+    } else {
+        Err(validator::ValidationError::new("invalid_timezone"))
+    }
 }
 
 impl From<UpdateMeRequest> for UpdateProfileInput {
@@ -59,6 +73,7 @@ impl From<UpdateMeRequest> for UpdateProfileInput {
         Self {
             display_name: body.display_name,
             birthday: body.birthday,
+            timezone: body.timezone,
             max_proactive_per_day: body.max_proactive_per_day,
         }
     }

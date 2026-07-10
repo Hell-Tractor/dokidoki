@@ -46,6 +46,7 @@ async fn get_me_returns_current_user() {
     assert_eq!(body["data"]["username"], username);
     assert_eq!(body["data"]["display_name"], username);
     assert_eq!(body["data"]["max_proactive_per_day"], 20);
+    assert_eq!(body["data"]["timezone"], "Asia/Shanghai");
 }
 
 #[tokio::test]
@@ -79,6 +80,32 @@ async fn patch_me_updates_profile_fields() {
     assert_eq!(body["data"]["display_name"], "小明");
     assert_eq!(body["data"]["birthday"], "2000-01-01");
     assert_eq!(body["data"]["max_proactive_per_day"], 15);
+}
+
+#[tokio::test]
+async fn patch_me_updates_timezone() {
+    let mut app = setup_app().await;
+    let username = unique_username("patch_tz");
+    let password = "secret123";
+
+    let (_, register_body) = post_json(
+        &mut app,
+        "/api/v1/auth/register",
+        register_body(&username, password),
+    )
+    .await;
+    let token = register_body["data"]["token"].as_str().unwrap();
+
+    let (status, body) = patch_json_with_auth(
+        &mut app,
+        "/api/v1/me",
+        token,
+        json!({ "timezone": "America/New_York" }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["timezone"], "America/New_York");
 }
 
 #[tokio::test]
