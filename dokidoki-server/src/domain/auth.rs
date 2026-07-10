@@ -14,14 +14,14 @@ use crate::{
     error::AppError,
 };
 
-pub struct RegisterParams {
+pub struct RegisterInput {
     pub username: String,
     pub password: String,
     pub display_name: Option<String>,
     pub birthday: Option<NaiveDate>,
 }
 
-pub struct LoginParams {
+pub struct LoginInput {
     pub username: String,
     pub password: String,
 }
@@ -34,25 +34,25 @@ pub struct AuthSession {
 pub async fn register(
     pool: &MySqlPool,
     auth_config: &Auth,
-    params: RegisterParams,
+    input: RegisterInput,
 ) -> Result<AuthSession, AppError> {
-    let display_name = params
+    let display_name = input
         .display_name
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| params.username.clone());
+        .unwrap_or_else(|| input.username.clone());
 
-    let password_hash = hash_password(&params.password, auth_config.password_cost)?;
+    let password_hash = hash_password(&input.password, auth_config.password_cost)?;
     let user_id = Uuid::new_v4().to_string();
 
     let mut tx = pool.begin().await.map_err(AppError::internal)?;
 
     let user = queries::users::insert(
-        &mut *tx,
+        &mut tx,
         &user_id,
-        &params.username,
+        &input.username,
         &password_hash,
         &display_name,
-        params.birthday,
+        input.birthday,
     )
     .await?;
 
@@ -66,13 +66,13 @@ pub async fn register(
 pub async fn login(
     pool: &MySqlPool,
     auth_config: &Auth,
-    params: LoginParams,
+    input: LoginInput,
 ) -> Result<AuthSession, AppError> {
-    let credentials = queries::users::find_by_username(pool, &params.username)
+    let credentials = queries::users::find_by_username(pool, &input.username)
         .await?
         .ok_or_else(AppError::invalid_credentials)?;
 
-    verify_password(&params.password, &credentials.password_hash)?;
+    verify_password(&input.password, &credentials.password_hash)?;
 
     let user = credentials.into();
     create_session(pool, auth_config, user).await

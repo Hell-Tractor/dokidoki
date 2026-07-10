@@ -46,7 +46,7 @@ impl ErrorCode {
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub struct AppError {
-    pub code: ErrorCode,
+    code: ErrorCode,
     message: String,
 }
 
@@ -64,6 +64,10 @@ impl AppError {
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn code(&self) -> ErrorCode {
+        self.code
     }
 
     pub fn bad_request(message: impl Into<String>) -> Self {

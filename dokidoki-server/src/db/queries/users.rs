@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use sqlx::{Executor, MySql, MySqlPool};
+use sqlx::{MySql, MySqlPool};
 
 use crate::{
     db::models::{User, UserCredentials},
@@ -41,7 +41,7 @@ pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<User>, AppE
     Ok(user)
 }
 
-pub struct UpdateMeParams {
+pub(crate) struct UpdateMeParams {
     pub display_name: Option<String>,
     pub birthday: Option<NaiveDate>,
     pub max_proactive_per_day: Option<i32>,
@@ -76,26 +76,23 @@ pub async fn update_profile(
     .await
     .map_err(AppError::from_db)?;
 
-    Ok(User {
-        id: id.to_owned(),
-        username: current.username.clone(),
-        display_name,
-        birthday,
-        max_proactive_per_day,
-    })
+    fetch_by_id(pool, id).await
 }
 
-pub async fn insert<'e, E>(
-    executor: E,
+async fn fetch_by_id(pool: &MySqlPool, id: &str) -> Result<User, AppError> {
+    find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| AppError::internal(std::io::Error::other("user not found after write")))
+}
+
+pub async fn insert(
+    tx: &mut sqlx::Transaction<'_, MySql>,
     id: &str,
     username: &str,
     password_hash: &str,
     display_name: &str,
     birthday: Option<NaiveDate>,
-) -> Result<User, AppError>
-where
-    E: Executor<'e, Database = MySql>,
-{
+) -> Result<User, AppError> {
     sqlx::query(
         r#"
         INSERT INTO users (id, username, password_hash, display_name, birthday)
@@ -107,15 +104,19 @@ where
     .bind(password_hash)
     .bind(display_name)
     .bind(birthday)
-    .execute(executor)
+    .execute(&mut **tx)
     .await
     .map_err(AppError::from_db)?;
 
-    Ok(User {
-        id: id.to_owned(),
-        username: username.to_owned(),
-        display_name: display_name.to_owned(),
-        birthday,
-        max_proactive_per_day: 20,
-    })
+    sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, username, display_name, birthday, max_proactive_per_day
+        FROM users
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(AppError::from_db)
 }

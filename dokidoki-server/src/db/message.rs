@@ -1,15 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const CONTENT_TYPE_TEXT: &str = "text";
-pub const CONTENT_TYPE_IMAGE: &str = "image";
+pub(crate) const CONTENT_TYPE_TEXT: &str = "text";
+pub(crate) const CONTENT_TYPE_IMAGE: &str = "image";
 
 /// 消息类型专用字段；存于 `messages.metadata` JSON 列。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MessageMetadata {
     /// 媒体文件相对路径（如图片、语音）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
+    pub(crate) path: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::{
     api::{response::ApiResponse, response::ApiResult},
-    db::{models::Character, queries::characters},
+    domain::characters,
+    db::models::Character,
     state::AppState,
 };
 
@@ -14,10 +15,10 @@ pub fn api() -> Router<Arc<AppState>> {
 }
 
 #[derive(Serialize)]
-pub struct CharacterResponse {
-    pub id: String,
-    pub name: String,
-    pub avatar_url: String,
+struct CharacterResponse {
+    id: String,
+    name: String,
+    avatar_url: String,
 }
 
 impl From<Character> for CharacterResponse {

@@ -7,7 +7,6 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
@@ -15,11 +14,8 @@ use crate::{
         extractors::{AuthUser, ValidatedJson},
         response::{ApiResponse, ApiResult},
     },
-    db::{
-        message::{Message, CONTENT_TYPE_IMAGE},
-        queries::{conversations, messages},
-    },
-    error::AppError,
+    db::message::{Message, CONTENT_TYPE_IMAGE, CONTENT_TYPE_TEXT},
+    domain::messages::{self, SentTextMessage},
     state::AppState,
 };
 
@@ -40,7 +36,7 @@ fn default_limit() -> u32 {
 
 #[derive(Serialize)]
 #[serde(tag = "content_type", rename_all = "snake_case")]
-pub enum MessageResponse {
+enum MessageResponse {
     Text {
         id: String,
         role: String,
@@ -64,49 +60,97 @@ pub enum MessageResponse {
     },
 }
 
-impl From<Message> for MessageResponse {
-    fn from(message: Message) -> Self {
-        if message.content_type == CONTENT_TYPE_IMAGE {
-            let image_url = message
-                .media_url("image")
-                .unwrap_or_else(|| format!("/api/v1/messages/{}/image", message.id));
-            MessageResponse::Image {
-                id: message.id,
-                role: message.role,
-                content: message.content.unwrap_or_default(),
-                image_url,
-                turn_id: message.turn_id,
-                seq_in_turn: message.seq_in_turn,
-                reply_to_id: message.reply_to_id,
-                read_at: message.read_at,
-                created_at: message.created_at,
-            }
-        } else {
-            MessageResponse::Text {
-                id: message.id,
-                role: message.role,
-                content: message.content.unwrap_or_default(),
-                turn_id: message.turn_id,
-                seq_in_turn: message.seq_in_turn,
-                reply_to_id: message.reply_to_id,
-                read_at: message.read_at,
-                created_at: message.created_at,
-            }
+struct MessageCommonFields {
+    id: String,
+    role: String,
+    content: String,
+    turn_id: Option<String>,
+    seq_in_turn: i32,
+    reply_to_id: Option<String>,
+    read_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+}
+
+impl MessageCommonFields {
+    fn from_message(message: Message) -> Self {
+        Self {
+            id: message.id,
+            role: message.role,
+            content: message.content.unwrap_or_default(),
+            turn_id: message.turn_id,
+            seq_in_turn: message.seq_in_turn,
+            reply_to_id: message.reply_to_id,
+            read_at: message.read_at,
+            created_at: message.created_at,
+        }
+    }
+
+    fn into_text(self) -> MessageResponse {
+        MessageResponse::Text {
+            id: self.id,
+            role: self.role,
+            content: self.content,
+            turn_id: self.turn_id,
+            seq_in_turn: self.seq_in_turn,
+            reply_to_id: self.reply_to_id,
+            read_at: self.read_at,
+            created_at: self.created_at,
+        }
+    }
+
+    fn into_image(self, image_url: String) -> MessageResponse {
+        MessageResponse::Image {
+            id: self.id,
+            role: self.role,
+            content: self.content,
+            image_url,
+            turn_id: self.turn_id,
+            seq_in_turn: self.seq_in_turn,
+            reply_to_id: self.reply_to_id,
+            read_at: self.read_at,
+            created_at: self.created_at,
         }
     }
 }
 
-#[derive(Serialize)]
-pub struct ListMessagesResponse {
-    pub messages: Vec<MessageResponse>,
-    pub has_more: bool,
+impl From<Message> for MessageResponse {
+    fn from(message: Message) -> Self {
+        let content_type = message.content_type.clone();
+        let image_url = message.media_url("image");
+        let common = MessageCommonFields::from_message(message);
+
+        if content_type == CONTENT_TYPE_IMAGE {
+            if let Some(image_url) = image_url {
+                return common.into_image(image_url);
+            }
+        }
+
+        let _ = CONTENT_TYPE_TEXT;
+        common.into_text()
+    }
 }
 
 #[derive(Serialize)]
-pub struct CreateMessageResponse {
-    pub id: String,
-    pub turn_id: String,
-    pub created_at: DateTime<Utc>,
+struct ListMessagesResponse {
+    messages: Vec<MessageResponse>,
+    has_more: bool,
+}
+
+#[derive(Serialize)]
+struct CreateMessageResponse {
+    id: String,
+    turn_id: String,
+    created_at: DateTime<Utc>,
+}
+
+impl From<SentTextMessage> for CreateMessageResponse {
+    fn from(message: SentTextMessage) -> Self {
+        Self {
+            id: message.id,
+            turn_id: message.turn_id,
+            created_at: message.created_at,
+        }
+    }
 }
 
 #[derive(Deserialize, Validate)]
@@ -122,17 +166,22 @@ async fn list_messages(
     Query(query): Query<ListMessagesQuery>,
 ) -> ApiResult<ListMessagesResponse> {
     let limit = query.limit.clamp(1, 100);
-
-    conversations::find_by_id_for_user(&state.db, &conversation_id, &user.id)
-        .await?
-        .ok_or_else(|| AppError::not_found("会话不存在"))?;
-
-    let (rows, has_more) =
-        messages::list_page(&state.db, &conversation_id, query.before.as_deref(), limit).await?;
+    let page = messages::list_for_conversation(
+        &state.db,
+        &user.id,
+        &conversation_id,
+        query.before.as_deref(),
+        limit,
+    )
+    .await?;
 
     Ok(ApiResponse::ok(ListMessagesResponse {
-        messages: rows.into_iter().map(MessageResponse::from).collect(),
-        has_more,
+        messages: page
+            .messages
+            .into_iter()
+            .map(MessageResponse::from)
+            .collect(),
+        has_more: page.has_more,
     }))
 }
 
@@ -142,29 +191,13 @@ async fn create_message(
     Path(conversation_id): Path<String>,
     ValidatedJson(body): ValidatedJson<CreateMessageRequest>,
 ) -> ApiResult<CreateMessageResponse> {
-    conversations::find_by_id_for_user(&state.db, &conversation_id, &user.id)
-        .await?
-        .ok_or_else(|| AppError::not_found("会话不存在"))?;
-
-    let content = body.content.trim();
-    if content.is_empty() {
-        return Err(AppError::bad_request("消息内容不能为空"));
-    }
-
-    let message_id = Uuid::new_v4().to_string();
-    let turn_id = Uuid::new_v4().to_string();
-    let message = messages::insert_user_text(
+    let message = messages::send_user_text(
         &state.db,
-        &message_id,
+        &user.id,
         &conversation_id,
-        content,
-        &turn_id,
+        body.content,
     )
     .await?;
 
-    Ok(ApiResponse::accepted(CreateMessageResponse {
-        id: message.id,
-        turn_id: message.turn_id.unwrap_or(turn_id),
-        created_at: message.created_at,
-    }))
+    Ok(ApiResponse::accepted(message.into()))
 }

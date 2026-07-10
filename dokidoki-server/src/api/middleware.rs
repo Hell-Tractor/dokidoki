@@ -8,7 +8,7 @@ use axum::{
 
 use crate::{
     api::extractors::AuthContext,
-    auth,
+    domain::auth,
     error::AppError,
     state::AppState,
 };

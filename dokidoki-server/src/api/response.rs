@@ -72,10 +72,10 @@ struct ApiErrorEnvelope {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let status = error_code_status(self.code);
+        let status = error_code_status(self.code());
         let body = Json(ApiErrorEnvelope {
             error: ErrorBody {
-                code: self.code.as_str(),
+                code: self.code().as_str(),
                 message: self.message().to_owned(),
             },
         });

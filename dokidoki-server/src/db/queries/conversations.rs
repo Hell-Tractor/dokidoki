@@ -1,4 +1,4 @@
-use sqlx::{Executor, MySql, MySqlPool};
+use sqlx::MySqlPool;
 
 use crate::{
     db::models::{Conversation, ConversationListRow},
@@ -84,15 +84,26 @@ pub async fn find_by_id_for_user(
     Ok(conversation)
 }
 
-pub async fn insert<'e, E>(
-    executor: E,
+pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<Conversation>, AppError> {
+    sqlx::query_as::<_, Conversation>(
+        r#"
+        SELECT id, user_id, character_id, status, first_contact_done
+        FROM conversations
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)
+}
+
+pub async fn insert(
+    pool: &MySqlPool,
     id: &str,
     user_id: &str,
     character_id: &str,
-) -> Result<Conversation, AppError>
-where
-    E: Executor<'e, Database = MySql>,
-{
+) -> Result<Conversation, AppError> {
     sqlx::query(
         r#"
         INSERT INTO conversations (id, user_id, character_id)
@@ -102,15 +113,15 @@ where
     .bind(id)
     .bind(user_id)
     .bind(character_id)
-    .execute(executor)
+    .execute(pool)
     .await
     .map_err(AppError::from_db)?;
 
-    Ok(Conversation {
-        id: id.to_owned(),
-        user_id: user_id.to_owned(),
-        character_id: character_id.to_owned(),
-        status: "active".to_owned(),
-        first_contact_done: false,
-    })
+    fetch_by_id(pool, id).await
+}
+
+async fn fetch_by_id(pool: &MySqlPool, id: &str) -> Result<Conversation, AppError> {
+    find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| AppError::internal(std::io::Error::other("conversation not found after insert")))
 }

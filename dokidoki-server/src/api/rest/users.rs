@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
@@ -13,8 +10,9 @@ use crate::{
         extractors::{AuthUser, ValidatedJson},
         response::{ApiResponse, ApiResult},
     },
-    db::queries::users::{self, UpdateMeParams},
+    db::models::User,
     state::AppState,
+    domain::users::{self, UpdateProfileInput},
 };
 
 pub fn api() -> Router<Arc<AppState>> {
@@ -24,16 +22,16 @@ pub fn api() -> Router<Arc<AppState>> {
 
 #[derive(Serialize)]
 pub struct UserResponse {
-    pub id: String,
-    pub username: String,
-    pub display_name: String,
+    id: String,
+    username: String,
+    display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub birthday: Option<NaiveDate>,
-    pub max_proactive_per_day: u32,
+    birthday: Option<NaiveDate>,
+    max_proactive_per_day: u32,
 }
 
-impl From<crate::db::models::User> for UserResponse {
-    fn from(user: crate::db::models::User) -> Self {
+impl From<User> for UserResponse {
+    fn from(user: User) -> Self {
         Self {
             id: user.id,
             username: user.username,
@@ -56,6 +54,16 @@ struct UpdateMeRequest {
     max_proactive_per_day: Option<u32>,
 }
 
+impl From<UpdateMeRequest> for UpdateProfileInput {
+    fn from(body: UpdateMeRequest) -> Self {
+        Self {
+            display_name: body.display_name,
+            birthday: body.birthday,
+            max_proactive_per_day: body.max_proactive_per_day,
+        }
+    }
+}
+
 async fn get_me(AuthUser(user): AuthUser) -> ApiResult<UserResponse> {
     Ok(ApiResponse::ok(user.into()))
 }
@@ -65,17 +73,6 @@ async fn patch_me(
     AuthUser(user): AuthUser,
     ValidatedJson(body): ValidatedJson<UpdateMeRequest>,
 ) -> ApiResult<UserResponse> {
-    let user = users::update_profile(
-        &state.db,
-        &user.id,
-        &user,
-        UpdateMeParams {
-            display_name: body.display_name,
-            birthday: body.birthday,
-            max_proactive_per_day: body.max_proactive_per_day.map(|value| value as i32),
-        },
-    )
-    .await?;
-
+    let user = users::update_profile(&state.db, &user, body.into()).await?;
     Ok(ApiResponse::ok(user.into()))
 }

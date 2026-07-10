@@ -27,6 +27,9 @@ dokidoki/
 ├── dokidoki-server/     # Rust 后端
 │   ├── migrations/
 │   └── src/
+│       ├── api/           # 传输层：路由、鉴权、Request/Response
+│       ├── domain/        # 领域服务：auth, conversations, messages, …
+│       └── db/            # 仓储：sqlx 查询、models
 └── dokidoki-app/        # Flutter 客户端（待建）
 ```
 
@@ -46,22 +49,23 @@ dokidoki/
 
 | 分层 | 目录 | 职责 | 禁止 |
 |------|------|------|------|
-| 传输层 | `api` | 路由、鉴权、序列化、调用领域服务 | 不写 burst、Prompt、状态机等业务逻辑 |
-| 领域服务 | `auth`、`chat`、`proactive` 等 | 业务编排、领域规则 | 不直接拼 HTTP 响应；不散落 SQL |
+| 传输层 | `api` | 路由、鉴权、序列化、调用领域服务 | 不写 burst、Prompt、状态机等业务逻辑；**不直接**调 `db::queries` |
+| 领域服务 | `domain/`（`auth`、`conversations`、`messages`、`chat`、`proactive` 等） | 业务编排、领域规则 | 不直接拼 HTTP 响应；不散落 SQL |
 | 仓储 | `db` | sqlx 查询、`models`、事务 | 不 import 上层模块 |
 | 外部适配器 | `llm`、`push` | 第三方 API 封装 | 不含领域规则 |
 
 ### 4.1 Handler 约定
 
-- Handler 保持薄（通常 < 30 行）：反序列化 Request → 调领域服务 → 映射 Response → 包进 `ApiResponse`
-- SQL 统一放 `db/queries/`，按表或领域分文件
+- Handler 保持薄（通常 < 30 行）：`ValidatedJson` 反序列化 + 校验 → 调领域服务 → `From` 映射 Response → 包进 `ApiResponse`
+- Handler **不得**直接调用 `db::queries`；须经对应领域模块（如 `conversations::get_or_create`）
+- SQL 统一放 `db/queries/`，由领域模块调用
 - **不必**：每表单独 `trait Repository` + mock；为简单 CRUD 再包 `BaseDao`；建中央 `api/dto/` 目录
 
 ### 4.2 模块依赖（硬性规则）
 
 ```
-api → auth, chat, proactive, db, push, schedule, persona  （不直接调 llm）
-auth → db
+api → domain::{auth, conversations, messages, …}
+domain → db
 chat → persona, schedule, llm, memory, db, ws_hub
 proactive → persona, schedule, llm, chat::delivery, push, db
 db → 无上层依赖
@@ -70,14 +74,32 @@ db → 无上层依赖
 - `db` 不得 import `chat`、`api` 等上层模块
 - `api` 不得直接操作 `burst_buffers`、`reply_queues`（须经 `ChatService`）
 - `api` 不直接调用 `llm`（须经 `chat` / `proactive`）
+- `api` 不直接调用 `db::queries`（须经领域模块）
 
-### 4.4 所有权与 Clone
+### 4.3 高内聚低耦合
+
+- **按领域分模块**：会话逻辑在 `domain/conversations.rs`，消息逻辑在 `domain/messages.rs`，不散落在 handler 或 `From` 里
+- **领域模块**聚合业务规则（幂等创建、归属校验、展示过滤、trim 语义等）；**仓储**只做 SQL
+- **API Response 的 `From`** 只做协议映射（字段投影、URL 拼接、类型适配），**不做**业务决策
+- 业务决策已在领域层完成时，`From` 输入应为领域 ViewModel（如 `ConversationListItem`），而非 raw SQL row
+- 避免 `api` ↔ `db` 双向依赖；共享类型放领域层或 `db/models`，不为了省事跨层 import
+
+### 4.4 可见性（避免过度 `pub`）
+
+- **默认私有**；只在需要时放宽
+- `lib.rs`：`pub mod domain`；`db` 用 `pub(crate)`，不对外暴露仓储细节
+- Response struct：**字段私有**即可（`Serialize` 不要求字段 `pub`）；仅跨 handler 复用的 Response **类型**才 `pub`（如 `UserResponse`）
+- 领域输入 struct（如 `RegisterInput`）为**纯数据**，不含 `Deserialize` / `Validate`；由 `api` 校验后经 `From` 传入
+- DB model 的敏感/内部字段用 `pub(crate)`（如 `Message.metadata`）；读取经类型上的 helper（如 `media_url()`）
+- `AppError` 等同理：优先私有字段 + getter，而非公开字段
+
+### 4.5 所有权与 Clone
 
 - 优先 **move** 或 **借用**（`&` / `&mut`），避免 `.clone()`
 - 若确实需要 owned 值，由**最终需要所有权**的调用方负责 clone；不在中间 helper 里 preemptively clone
 - `Arc::clone`、`pool.clone()` 等 cheap clone 除外
 
-### 4.5 文件变长时的拆分
+### 4.6 文件变长时的拆分
 
 | 触发条件 | 做法 |
 |----------|------|
@@ -124,27 +146,32 @@ db → 无上层依赖
 
 ## 6. Request / Response 组织
 
-### 6.1 默认：与 handler 同文件
+### 6.1 校验与领域输入
 
-- 放在 `api/rest/<domain>.rs`，如 `RegisterRequest`、`AuthResponse` 定义在 `api/rest/auth.rs`
-- 命名：`XxxRequest` / `XxxResponse`（Rust 惯例）
-- 代码中**不使用** `Dto` / `Vo` 后缀
+- **格式校验**（长度、范围等）属于传输层：`Request` struct 放在 `api/rest/`，derive `Deserialize` + `Validate`，经 `ValidatedJson` 在 handler 入口完成
+- 校验通过后，用 `From<Request>` 转为领域 **Input**（纯数据 struct，无 serde/validator），再调领域函数
+- 字段一致时 Input 与 Request 仍分属两层（协议 vs 领域），用 `From` 衔接，**不**维护 Params 式第三份镜像
+- **业务校验**（trim 后为空、资源归属、幂等等）在领域层，不在 `validator` 里
+- 仅当 API 与领域字段语义不一致时（如 API `u32`、DB `i32`），在 `From` 或领域入口做一次转换
 
-### 6.2 跨 handler 复用
+### 6.2 Response 与 handler 位置
 
-- 如 `UserResponse` 同时用于 auth 与 `/me`：放到 `api/rest/users.rs` 并 `pub` 导出
+- 仅本 handler 使用的 Response：与 handler 同文件，**类型与字段默认私有**
+- 命名：`XxxResponse`（Rust 惯例）；**不使用** `Dto` / `Vo` 后缀
+- 跨 handler 复用（如 `UserResponse` 用于 auth 与 `/me`）：放 `api/rest/users.rs`，**类型** `pub` 导出
 - **MVP 不建**中央 `api/dto/` 目录
 
 ### 6.3 与 DB model 的关系
 
-- API 字段与表结构一致时：用 `From` / `Into` 转换
-- 字段不一致时（隐藏 `password_hash`、拼接 `avatar_url` 等）：**必须**经 Response struct 映射
 - **禁止**把 `db/models` 直接 `Json()` 作为 API 响应
+- 字段不一致时（隐藏 `password_hash`、拼接 `avatar_url` 等）：**必须**经 Response struct 映射
 
-### 6.4 类型转换
+### 6.4 类型转换（`From` / `Into`）
 
-- 在能用 `From` / `Into` 且没有较大负面影响的情况下，**优先使用** `From` / `Into`，而非手写 `into_xxx()` / `to_xxx()`
-- `impl From` 放在被转换目标类型附近（如 `impl From<User> for UserResponse` 与 `UserResponse` 同文件）
+- 在能用 `From` / `Into` 且没有较大负面影响的情况下，**优先使用** `From` / `Into`，而非手写 `into_xxx()` / `to_xxx()` 或逐字段 struct literal
+- `impl From` 放在**转换目标类型**附近（如 `impl From<User> for UserResponse` 与 `UserResponse` 同文件）
+- **`From` 仅做映射**，不做业务逻辑（不做 `filter`、幂等、trim 判定等）；这些在领域层完成后再 `into()`
+- 仓储 `insert` / `update` 后应用 SELECT 读回 row，再 `From` 为 model；避免手写拼默认值
 
 ### 6.5 鉴权实现
 

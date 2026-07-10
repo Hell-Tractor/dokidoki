@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::{routing::get, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
@@ -11,11 +10,10 @@ use crate::{
         extractors::{AuthUser, ValidatedJson},
         response::{ApiResponse, ApiResult},
     },
-    db::{
-        models::{Conversation, ConversationListRow},
-        queries::{characters, conversations},
+    domain::conversations::{
+        self, ConversationListItem, GetOrCreateConversationResult, LastMessagePreview,
     },
-    error::AppError,
+    db::models::Conversation,
     state::AppState,
 };
 
@@ -26,11 +24,11 @@ pub fn api() -> Router<Arc<AppState>> {
 }
 
 #[derive(Serialize)]
-pub struct ConversationResponse {
-    pub id: String,
-    pub character_id: String,
-    pub status: String,
-    pub first_contact_done: bool,
+struct ConversationResponse {
+    id: String,
+    character_id: String,
+    status: String,
+    first_contact_done: bool,
 }
 
 impl From<Conversation> for ConversationResponse {
@@ -45,46 +43,43 @@ impl From<Conversation> for ConversationResponse {
 }
 
 #[derive(Serialize)]
-pub struct LastMessageResponse {
-    pub content: String,
-    pub created_at: DateTime<Utc>,
-    pub role: String,
+struct LastMessageResponse {
+    content: String,
+    created_at: DateTime<Utc>,
+    role: String,
+}
+
+impl From<LastMessagePreview> for LastMessageResponse {
+    fn from(preview: LastMessagePreview) -> Self {
+        Self {
+            content: preview.content,
+            created_at: preview.created_at,
+            role: preview.role,
+        }
+    }
 }
 
 #[derive(Serialize)]
-pub struct ConversationListItemResponse {
-    pub id: String,
-    pub character_id: String,
-    pub character_name: String,
-    pub status: String,
+struct ConversationListItemResponse {
+    id: String,
+    character_id: String,
+    character_name: String,
+    status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_message: Option<LastMessageResponse>,
+    last_message: Option<LastMessageResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_activity: Option<String>,
+    current_activity: Option<String>,
 }
 
-impl From<ConversationListRow> for ConversationListItemResponse {
-    fn from(row: ConversationListRow) -> Self {
-        let last_message = match (
-            row.last_message_content,
-            row.last_message_created_at,
-            row.last_message_role,
-        ) {
-            (Some(content), Some(created_at), Some(role)) => Some(LastMessageResponse {
-                content,
-                created_at,
-                role,
-            }),
-            _ => None,
-        };
-
+impl From<ConversationListItem> for ConversationListItemResponse {
+    fn from(item: ConversationListItem) -> Self {
         Self {
-            id: row.id,
-            character_id: row.character_id,
-            character_name: row.character_name,
-            status: row.status,
-            last_message,
-            current_activity: row.current_activity.filter(|activity| !activity.is_empty()),
+            id: item.id,
+            character_id: item.character_id,
+            character_name: item.character_name,
+            status: item.status,
+            last_message: item.last_message.map(LastMessageResponse::from),
+            current_activity: item.current_activity,
         }
     }
 }
@@ -99,9 +94,10 @@ async fn list_conversations(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     AuthUser(user): AuthUser,
 ) -> ApiResult<Vec<ConversationListItemResponse>> {
-    let rows = conversations::list_by_user(&state.db, &user.id).await?;
+    let items = conversations::list_for_user(&state.db, &user.id).await?;
     Ok(ApiResponse::ok(
-        rows.into_iter()
+        items
+            .into_iter()
             .map(ConversationListItemResponse::from)
             .collect(),
     ))
@@ -112,37 +108,12 @@ async fn create_conversation(
     AuthUser(user): AuthUser,
     ValidatedJson(body): ValidatedJson<CreateConversationRequest>,
 ) -> ApiResult<ConversationResponse> {
-    if let Some(conversation) =
-        conversations::find_by_user_and_character(&state.db, &user.id, &body.character_id).await?
-    {
-        return Ok(ApiResponse::ok(conversation.into()));
-    }
-
-    characters::find_by_id(&state.db, &body.character_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("角色不存在"))?;
-
-    let conversation_id = Uuid::new_v4().to_string();
-    match conversations::insert(
-        &state.db,
-        &conversation_id,
-        &user.id,
-        &body.character_id,
-    )
-    .await
-    {
-        Ok(conversation) => Ok(ApiResponse::created(conversation.into())),
-        Err(err) => {
-            if let Some(conversation) = conversations::find_by_user_and_character(
-                &state.db,
-                &user.id,
-                &body.character_id,
-            )
-            .await?
-            {
-                return Ok(ApiResponse::ok(conversation.into()));
-            }
-            Err(err)
+    match conversations::get_or_create(&state.db, &user.id, &body.character_id).await? {
+        GetOrCreateConversationResult::Created(conversation) => {
+            Ok(ApiResponse::created(conversation.into()))
+        }
+        GetOrCreateConversationResult::Existing(conversation) => {
+            Ok(ApiResponse::ok(conversation.into()))
         }
     }
 }
