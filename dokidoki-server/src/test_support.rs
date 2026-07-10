@@ -41,7 +41,7 @@ pub async fn setup_app() -> TestApp {
     );
 
     let pool = init_test_database(&url).await;
-    reset_auth_tables(&pool).await;
+    reset_test_tables(&pool).await;
 
     let config = config::Config::for_test(url);
     let state = Arc::new(AppState::from_parts(config, pool));
@@ -70,11 +70,40 @@ async fn init_test_database(url: &str) -> MySqlPool {
     pool
 }
 
-pub async fn reset_auth_tables(pool: &MySqlPool) {
+/// 清空集成测试涉及的表，保证用例之间隔离。
+pub async fn reset_test_tables(pool: &MySqlPool) {
     sqlx::query("SET FOREIGN_KEY_CHECKS = 0")
         .execute(pool)
         .await
         .expect("disable foreign key checks");
+    sqlx::query("TRUNCATE TABLE messages")
+        .execute(pool)
+        .await
+        .expect("truncate messages");
+    sqlx::query("TRUNCATE TABLE conversations")
+        .execute(pool)
+        .await
+        .expect("truncate conversations");
+    sqlx::query("TRUNCATE TABLE proactive_logs")
+        .execute(pool)
+        .await
+        .expect("truncate proactive_logs");
+    sqlx::query("TRUNCATE TABLE user_memories")
+        .execute(pool)
+        .await
+        .expect("truncate user_memories");
+    sqlx::query("TRUNCATE TABLE user_character_settings")
+        .execute(pool)
+        .await
+        .expect("truncate user_character_settings");
+    sqlx::query("TRUNCATE TABLE character_states")
+        .execute(pool)
+        .await
+        .expect("truncate character_states");
+    sqlx::query("TRUNCATE TABLE characters")
+        .execute(pool)
+        .await
+        .expect("truncate characters");
     sqlx::query("TRUNCATE TABLE user_sessions")
         .execute(pool)
         .await
@@ -87,4 +116,28 @@ pub async fn reset_auth_tables(pool: &MySqlPool) {
         .execute(pool)
         .await
         .expect("enable foreign key checks");
+}
+
+pub async fn test_pool() -> MySqlPool {
+    let url = std::env::var("TEST_DATABASE_URL").expect(
+        "TEST_DATABASE_URL is required for integration tests \
+         (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
+    );
+    init_test_database(&url).await
+}
+
+pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        INSERT INTO characters (id, name, persona_json, schedule_json)
+        VALUES (?, ?, '{}', '{}')
+        "#,
+    )
+    .bind(&id)
+    .bind(name)
+    .execute(pool)
+    .await
+    .expect("insert test character");
+    id
 }

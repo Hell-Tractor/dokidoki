@@ -34,9 +34,9 @@
 
 ### M-02 多角色会话（P0）
 
-- [ ] `GET /characters`
-- [ ] `GET /conversations`
-- [ ] `POST /conversations`（幂等创建 + 触发破冰）
+- [x] `GET /characters`
+- [x] `GET /conversations`
+- [x] `POST /conversations`（幂等创建；破冰待 M-28）
 - [ ] 角色种子数据 / 迁移
 
 ### M-03 / M-04 消息（P0）

@@ -30,3 +30,31 @@ impl From<UserCredentials> for User {
         }
     }
 }
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Character {
+    pub id: String,
+    pub name: String,
+    pub avatar_path: Option<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Conversation {
+    pub id: String,
+    pub user_id: String,
+    pub character_id: String,
+    pub status: String,
+    pub first_contact_done: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConversationListRow {
+    pub id: String,
+    pub character_id: String,
+    pub character_name: String,
+    pub status: String,
+    pub current_activity: Option<String>,
+    pub last_message_content: Option<String>,
+    pub last_message_created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_message_role: Option<String>,
+}
