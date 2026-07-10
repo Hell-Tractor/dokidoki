@@ -17,3 +17,13 @@ String buildWsUrl(String serverUrl) {
     path: wsPath,
   ).toString();
 }
+
+String resolveServerResource(String serverUrl, String path) {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  final base = serverUrl.endsWith('/')
+      ? serverUrl.substring(0, serverUrl.length - 1)
+      : serverUrl;
+  return '$base$path';
+}

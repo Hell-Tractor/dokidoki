@@ -2,7 +2,7 @@
 
 按前后端分列；`- [x]` 已完成，`- [ ]` 未完成。优先级：P0 → P1 → P2+。
 
-> **当前里程碑**：前端 M-01（连接与鉴权）已完成 → **下一步 M-02（会话列表）**。
+> **当前里程碑**：前端 M-02（会话列表）已完成 → **下一步 M-03（聊天页）**。
 
 ---
 
@@ -146,7 +146,7 @@
 
 ## 前端（dokidoki-app）
 
-> M-01 已完成；下一步实现 HomePage 与会话列表（M-02）。
+> M-02 已完成；下一步实现 ChatPage（M-03）。
 
 ### 项目骨架
 
@@ -174,10 +174,10 @@
 
 ### M-02 多角色会话（P0）
 
-- [ ] P-03 HomePage：会话列表（`GET /conversations`）
-- [ ] 空状态 + 角色列表入口（`GET /characters`）
-- [ ] 点击角色创建会话（`POST /conversations`）
-- [ ] 进入 Home 建立全局 WS
+- [x] P-03 HomePage：会话列表（`GET /conversations`）
+- [x] 空状态 + 角色列表入口（`GET /characters`）
+- [x] 点击角色创建会话（`POST /conversations`）
+- [x] 进入 Home 建立全局 WS
 
 ### M-03 / M-04 聊天与图片（P0）
 
