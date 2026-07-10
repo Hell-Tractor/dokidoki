@@ -5,8 +5,8 @@ import '../models/api_error.dart';
 class ApiClient {
   ApiClient({
     required String baseUrl,
-    required Future<String?> Function() this._getToken,
-    required void Function() this._onUnauthorized,
+    required this._getToken,
+    required this._onUnauthorized,
   }) : _dio = Dio(
           BaseOptions(
             baseUrl: baseUrl,

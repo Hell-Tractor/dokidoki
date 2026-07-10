@@ -40,7 +40,7 @@ class AuthApi {
         'password': password,
         if (displayName != null && displayName.isNotEmpty)
           'display_name': displayName,
-        if (birthday != null) 'birthday': birthday,
+        'birthday': ?birthday,
         'timezone': timezone,
       },
       parser: (json) => AuthSession.fromJson(json as Map<String, dynamic>),

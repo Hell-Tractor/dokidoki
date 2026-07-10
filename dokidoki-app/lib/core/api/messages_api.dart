@@ -14,7 +14,7 @@ class MessagesApi {
     return _client.getData(
       '/conversations/$conversationId/messages',
       queryParameters: {
-        if (before != null) 'before': before,
+        'before': ?before,
         'limit': limit,
       },
       parser: (json) {

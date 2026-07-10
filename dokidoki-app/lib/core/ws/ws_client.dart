@@ -23,8 +23,8 @@ class WsEvent {
 
 class WsClient {
   WsClient({
-    required Future<String?> Function() this._getToken,
-    required String? Function() this._getWsUrl,
+    required this._getToken,
+    required this._getWsUrl,
   });
 
   final Future<String?> Function() _getToken;
