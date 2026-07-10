@@ -27,7 +27,7 @@ dokidoki/
 ├── docs/                    # 需求与设计文档
 ├── dokidoki-server/         # Rust 后端（开发中）
 │   └── migrations/          # 数据库迁移
-└── dokidoki-app/            # Flutter 客户端（待建）
+└── dokidoki-app/            # Flutter 客户端
 ```
 
 ## 文档

@@ -30,7 +30,7 @@ dokidoki/
 │       ├── api/           # 传输层：路由、鉴权、Request/Response
 │       ├── domain/        # 领域服务：auth, conversations, messages, …
 │       └── db/            # 仓储：sqlx 查询、models
-└── dokidoki-app/        # Flutter 客户端（待建）
+└── dokidoki-app/        # Flutter 客户端
 ```
 
 ---
