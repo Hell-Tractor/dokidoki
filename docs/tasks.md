@@ -2,7 +2,7 @@
 
 按前后端分列；`- [x]` 已完成，`- [ ]` 未完成。优先级：P0 → P1 → P2+。
 
-> **当前里程碑**：前端 M-02（会话列表）已完成 → **下一步 M-03（聊天页）**。
+> **当前里程碑**：前端 M-03 文本聊天已完成 → **下一步图片消息（M-04）**。
 
 ---
 
@@ -146,7 +146,7 @@
 
 ## 前端（dokidoki-app）
 
-> M-02 已完成；下一步实现 ChatPage（M-03）。
+> M-03 文本聊天已完成；图片相关待 M-04。
 
 ### 项目骨架
 
@@ -181,14 +181,14 @@
 
 ### M-03 / M-04 聊天与图片（P0）
 
-- [ ] P-04 ChatPage：消息列表分页（`GET /messages`）
-- [ ] WS `subscribe(conversation_id)`
-- [ ] 文本发送（`POST /messages`；后续可切 WS `send_message`）
-- [ ] 收角色回复（WS `message`）
+- [x] P-04 ChatPage：消息列表分页（`GET /messages`）
+- [x] WS `subscribe(conversation_id)`
+- [x] 文本发送（`POST /messages`；后续可切 WS `send_message`）
+- [x] 收角色回复（WS `message`）
 - [ ] 图片发送（相册/相机 + 可选 caption）
 - [ ] 图片气泡展示与全屏预览
-- [ ] 双方头像（连续同方仅首条显示）
-- [ ] 历史消息加载（上拉 `before` 分页）
+- [x] 双方头像（连续同方仅首条显示）
+- [x] 历史消息加载（上拉 `before` 分页）
 
 ### M-13 Burst Chat 体验（P1）
 

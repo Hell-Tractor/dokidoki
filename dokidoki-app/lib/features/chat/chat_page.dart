@@ -1,17 +1,228 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
-import '../../shared/widgets/placeholder_scaffold.dart';
+import '../../core/api/providers.dart';
+import '../../core/auth/providers.dart';
+import '../../core/models/conversation.dart';
+import '../../core/utils/url_utils.dart';
+import '../../shared/widgets/character_avatar.dart';
+import 'chat_state.dart';
+import 'providers.dart';
+import 'widgets/chat_input_bar.dart';
+import 'widgets/message_bubble.dart';
 
-class ChatPage extends StatelessWidget {
-  const ChatPage({super.key, required this.conversationId});
+class ChatPage extends ConsumerStatefulWidget {
+  const ChatPage({
+    super.key,
+    required this.conversationId,
+    this.conversation,
+  });
 
   final String conversationId;
+  final ConversationListItem? conversation;
+
+  @override
+  ConsumerState<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends ConsumerState<ChatPage> {
+  final _inputController = TextEditingController();
+  final _scrollController = ScrollController();
+
+  ChatContext get _chatContext {
+    if (widget.conversation != null) {
+      return ChatContext.fromConversation(widget.conversation!);
+    }
+    return ChatContext(conversationId: widget.conversationId);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
+    _inputController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 80) {
+      ref.read(chatProvider(_chatContext).notifier).loadMore();
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _inputController.text;
+    if (text.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      await ref.read(chatProvider(_chatContext).notifier).sendText(text);
+      _inputController.clear();
+      await _scrollToBottom();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发送失败：$error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scrollToBottom() async {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (mounted && _scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return PlaceholderScaffold(
-      title: 'Chat',
-      subtitle: conversationId,
+    final chatAsync = ref.watch(chatProvider(_chatContext));
+    final userAsync = ref.watch(currentUserProvider);
+    final serverUrl = ref.watch(authConfigProvider).value?.serverUrl;
+
+    ref.listen(chatProvider(_chatContext), (previous, next) {
+      final prevCount = previous?.value?.messages.length ?? 0;
+      final nextCount = next.value?.messages.length ?? 0;
+      if (nextCount > prevCount) {
+        _scrollToBottom();
+      }
+    });
+
+    final userName = userAsync.value?.displayName ?? '我';
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),
+        ),
+        title: chatAsync.maybeWhen(
+          data: (chat) {
+            final characterName = chat.characterName ?? '聊天';
+            final avatarUrl = chat.characterId != null && serverUrl != null
+                ? resolveServerResource(
+                    serverUrl,
+                    '/api/v1/characters/${chat.characterId}/avatar',
+                  )
+                : null;
+
+            return Row(
+              children: [
+                CharacterAvatar(
+                  name: characterName,
+                  imageUrl: avatarUrl,
+                  radius: 16,
+                ),
+                const SizedBox(width: 10),
+                Text(characterName),
+              ],
+            );
+          },
+          orElse: () => const Text('聊天'),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: () =>
+                context.push('/chat/${widget.conversationId}/settings'),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: chatAsync.when(
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              error: (error, _) => Center(child: Text('加载失败：$error')),
+              data: (chat) {
+                if (chat.messages.isEmpty) {
+                  return const Center(child: Text('暂无消息，发一条试试吧'));
+                }
+
+                return Stack(
+                  children: [
+                    ListView.builder(
+                      controller: _scrollController,
+                      reverse: true,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: chat.messages.length,
+                      itemBuilder: (context, index) {
+                        final dataIndex = chat.messages.length - 1 - index;
+                        final message = chat.messages[dataIndex];
+                        final avatarUrl =
+                            chat.characterId != null && serverUrl != null
+                                ? resolveServerResource(
+                                    serverUrl,
+                                    '/api/v1/characters/${chat.characterId}/avatar',
+                                  )
+                                : null;
+
+                        return MessageBubble(
+                          message: message,
+                          showAvatar: shouldShowAvatar(
+                            chat.messages,
+                            dataIndex,
+                          ),
+                          characterName: chat.characterName ?? '角色',
+                          userDisplayName: userName,
+                          characterAvatarUrl: avatarUrl,
+                        );
+                      },
+                    ),
+                    if (chat.loadingMore)
+                      const Positioned(
+                        top: 8,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          chatAsync.maybeWhen(
+            data: (chat) => ChatInputBar(
+              controller: _inputController,
+              sending: chat.sending,
+              onSend: _sendMessage,
+            ),
+            orElse: () => ChatInputBar(
+              controller: _inputController,
+              onSend: _sendMessage,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

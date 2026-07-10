@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/models/character.dart';
+import '../../core/models/conversation.dart';
 import '../../core/ws/providers.dart';
 import 'character_picker_sheet.dart';
 import 'conversation_tile.dart';
@@ -39,7 +40,13 @@ class _HomePageState extends ConsumerState<HomePage> {
           .read(conversationsProvider.notifier)
           .createConversation(character.id);
       if (mounted) {
-        context.push('/chat/${conversation.id}');
+        final item = ConversationListItem(
+          id: conversation.id,
+          characterId: conversation.characterId,
+          characterName: character.name,
+          status: conversation.status,
+        );
+        context.push('/chat/${conversation.id}', extra: item);
       }
     } catch (error) {
       if (mounted) {
@@ -85,7 +92,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 final item = conversations[index];
                 return ConversationTile(
                   item: item,
-                  onTap: () => context.push('/chat/${item.id}'),
+                  onTap: () => context.push('/chat/${item.id}', extra: item),
                 );
               },
             ),

@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/providers.dart';
+import '../models/user.dart';
 import 'api_client.dart';
 import 'auth_api.dart';
 import 'conversations_api.dart';
+import 'messages_api.dart';
 
 final apiClientProvider = Provider<ApiClient?>((ref) {
   final config = ref.watch(authConfigProvider).value;
@@ -43,4 +45,20 @@ final charactersApiProvider = Provider<CharactersApi?>((ref) {
     return null;
   }
   return CharactersApi(client);
+});
+
+final messagesApiProvider = Provider<MessagesApi?>((ref) {
+  final client = ref.watch(apiClientProvider);
+  if (client == null) {
+    return null;
+  }
+  return MessagesApi(client);
+});
+
+final currentUserProvider = FutureProvider<User?>((ref) async {
+  final api = ref.watch(authApiProvider);
+  if (api == null) {
+    return null;
+  }
+  return api.getMe();
 });

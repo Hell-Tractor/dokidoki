@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_config.dart';
 import '../core/auth/providers.dart';
+import '../core/models/conversation.dart';
 import '../features/chat/chat_page.dart';
 import '../features/home/home_page.dart';
 import '../features/settings/character_settings_page.dart';
@@ -65,6 +66,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/chat/:conversationId',
         builder: (context, state) => ChatPage(
           conversationId: state.pathParameters['conversationId']!,
+          conversation: state.extra as ConversationListItem?,
         ),
         routes: [
           GoRoute(
