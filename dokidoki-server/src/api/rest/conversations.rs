@@ -22,6 +22,7 @@ use crate::{
 pub fn api() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_conversations).post(create_conversation))
+        .nest("/{conversation_id}/messages", super::messages::api())
 }
 
 #[derive(Serialize)]

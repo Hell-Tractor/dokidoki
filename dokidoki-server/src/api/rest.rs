@@ -8,6 +8,7 @@ mod auth;
 mod characters;
 mod conversations;
 mod health;
+mod messages;
 mod users;
 
 pub fn api(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {

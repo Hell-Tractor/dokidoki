@@ -41,8 +41,8 @@
 
 ### M-03 / M-04 消息（P0）
 
-- [ ] `GET /conversations/{id}/messages`（分页）
-- [ ] `POST /conversations/{id}/messages`（文本）
+- [x] `GET /conversations/{id}/messages`（分页）
+- [x] `POST /conversations/{id}/messages`（文本）
 - [ ] `POST /conversations/{id}/messages/image`（multipart）
 - [ ] `GET /messages/{id}/image`（鉴权 + 归属校验）
 - [ ] 图片本地存储（`/data/uploads`）

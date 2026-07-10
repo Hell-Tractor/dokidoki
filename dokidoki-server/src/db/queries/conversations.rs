@@ -63,6 +63,27 @@ pub async fn find_by_user_and_character(
     Ok(conversation)
 }
 
+pub async fn find_by_id_for_user(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    user_id: &str,
+) -> Result<Option<Conversation>, AppError> {
+    let conversation = sqlx::query_as::<_, Conversation>(
+        r#"
+        SELECT id, user_id, character_id, status, first_contact_done
+        FROM conversations
+        WHERE id = ? AND user_id = ?
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(conversation)
+}
+
 pub async fn insert<'e, E>(
     executor: E,
     id: &str,

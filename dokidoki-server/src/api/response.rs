@@ -29,6 +29,13 @@ impl<T> ApiResponse<T> {
         }
     }
 
+    pub fn accepted(data: T) -> Self {
+        Self {
+            data,
+            status: StatusCode::ACCEPTED,
+        }
+    }
+
     // pub fn with_status(status: StatusCode, data: T) -> Self {
     //     Self { data, status }
     // }

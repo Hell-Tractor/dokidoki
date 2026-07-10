@@ -23,9 +23,9 @@ pub struct CharacterResponse {
 impl From<Character> for CharacterResponse {
     fn from(character: Character) -> Self {
         Self {
-            id: character.id.clone(),
-            name: character.name,
             avatar_url: format!("/api/v1/characters/{}/avatar", character.id),
+            id: character.id,
+            name: character.name,
         }
     }
 }

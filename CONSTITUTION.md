@@ -71,7 +71,13 @@ db → 无上层依赖
 - `api` 不得直接操作 `burst_buffers`、`reply_queues`（须经 `ChatService`）
 - `api` 不直接调用 `llm`（须经 `chat` / `proactive`）
 
-### 4.3 文件变长时的拆分
+### 4.4 所有权与 Clone
+
+- 优先 **move** 或 **借用**（`&` / `&mut`），避免 `.clone()`
+- 若确实需要 owned 值，由**最终需要所有权**的调用方负责 clone；不在中间 helper 里 preemptively clone
+- `Arc::clone`、`pool.clone()` 等 cheap clone 除外
+
+### 4.5 文件变长时的拆分
 
 | 触发条件 | 做法 |
 |----------|------|
@@ -168,6 +174,7 @@ db → 无上层依赖
 | `birthday` | `chrono::NaiveDate`，API 与 DB 均为 `Option<NaiveDate>` |
 | `display_name` | 注册时 `Option<String>`；空则默认 `username` |
 | `max_proactive_per_day` | DB `i32`；API Response `u32` |
+| `Message.metadata` | 字段 `pub(crate)`，仅 `db/queries` 可读写（sqlx）；读取须通过 `Message` 上的 helper（如 `media_url()`） |
 
 ---
 
