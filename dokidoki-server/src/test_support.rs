@@ -7,12 +7,10 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use sqlx::MySqlPool;
-use tokio::sync::OnceCell;
 
 use crate::{api, config, state::AppState};
 
 static DB_TEST_LOCK: Mutex<()> = Mutex::new(());
-static SHARED_POOL: OnceCell<MySqlPool> = OnceCell::const_new();
 
 pub struct TestApp {
     pub app: Router,
@@ -34,18 +32,19 @@ impl DerefMut for TestApp {
     }
 }
 
-/// 清空测试表并返回可 `oneshot` 的 Router。连接池与迁移在进程内只初始化一次。
+/// 清空测试表并返回可 `oneshot` 的 Router。每个测试使用独立连接池，避免共享池耗尽。
 pub async fn setup_app() -> TestApp {
     let guard = DB_TEST_LOCK.lock().expect("test db lock poisoned");
-
-    let pool = shared_test_pool().await;
-    reset_test_tables(&pool).await;
 
     let url = std::env::var("TEST_DATABASE_URL").expect(
         "TEST_DATABASE_URL is required for integration tests \
          (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
     );
     let config = config::Config::for_test(url);
+
+    let pool = init_test_database(&config.database.url).await;
+    reset_test_tables(&pool).await;
+
     let state = Arc::new(AppState::from_parts(config, pool.clone()));
     TestApp {
         app: api::router(state),
@@ -60,19 +59,6 @@ pub fn setup_app_without_db() -> Router {
     let pool = MySqlPool::connect_lazy(&config.database.url).expect("lazy pool");
     let state = Arc::new(AppState::from_parts(config, pool));
     api::router(state)
-}
-
-async fn shared_test_pool() -> MySqlPool {
-    SHARED_POOL
-        .get_or_init(|| async {
-            let url = std::env::var("TEST_DATABASE_URL").expect(
-                "TEST_DATABASE_URL is required for integration tests \
-                 (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
-            );
-            init_test_database(&url).await
-        })
-        .await
-        .clone()
 }
 
 async fn init_test_database(url: &str) -> MySqlPool {
@@ -108,8 +94,14 @@ pub async fn reset_test_tables(pool: &MySqlPool) {
     .expect("reset test tables");
 }
 
+/// 返回一个可用于集成测试的连接池；每次调用都会创建新的连接池并跑迁移。
+/// 不会重置表，适用于需要在测试中手动控制表状态的场景。
 pub async fn test_pool() -> MySqlPool {
-    shared_test_pool().await
+    let url = std::env::var("TEST_DATABASE_URL").expect(
+        "TEST_DATABASE_URL is required for integration tests \
+         (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
+    );
+    init_test_database(&url).await
 }
 
 pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {

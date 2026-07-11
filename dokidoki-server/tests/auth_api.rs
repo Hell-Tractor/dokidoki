@@ -101,6 +101,7 @@ async fn register_defaults_display_name_to_username() {
             "username": username,
             "password": "secret123",
             "display_name": "",
+            "timezone": "Asia/Shanghai",
         }),
     )
     .await;
