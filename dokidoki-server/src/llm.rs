@@ -11,9 +11,16 @@ use fake::FakeLlmBackend;
 use http::HttpLlmBackend;
 
 #[derive(Debug, Clone)]
+pub struct LlmMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ChatRequest {
     pub conversation_id: String,
     pub turn_id: String,
+    pub messages: Vec<LlmMessage>,
 }
 
 pub struct LlmClient {
@@ -26,7 +33,7 @@ impl LlmClient {
     pub fn from_config(config: &Llm) -> Self {
         match config.mode.as_str() {
             "http" => Self {
-                backend: Arc::new(HttpLlmBackend::new()),
+                backend: Arc::new(HttpLlmBackend::new(config)),
                 fake: None,
             },
             _ => {
@@ -73,6 +80,7 @@ mod tests {
             .chat(ChatRequest {
                 conversation_id: "c".into(),
                 turn_id: "t".into(),
+                messages: vec![],
             })
             .await
             .unwrap();

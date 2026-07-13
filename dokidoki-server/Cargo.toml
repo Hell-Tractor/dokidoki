@@ -27,4 +27,5 @@ chrono-tz = "0.10.4"
 futures-util = "0.3.32"
 tokio-tungstenite = "0.29.0"
 async-trait = "0.1.89"
+reqwest = { version = "0.13.4", features = ["json", "rustls"] }
 

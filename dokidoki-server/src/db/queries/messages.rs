@@ -112,6 +112,41 @@ pub async fn list_page(
     Ok((rows, has_more))
 }
 
+pub async fn list_recent_text(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    limit: u32,
+) -> Result<Vec<Message>, AppError> {
+    let mut rows = sqlx::query_as::<_, Message>(
+        r#"
+        SELECT
+            id,
+            role,
+            content,
+            content_type,
+            turn_id,
+            seq_in_turn,
+            metadata,
+            reply_to_id,
+            read_at,
+            created_at
+        FROM messages
+        WHERE conversation_id = ?
+          AND content_type = 'text'
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    rows.reverse();
+    Ok(rows)
+}
+
 pub async fn insert_character_text(
     pool: &MySqlPool,
     id: &str,

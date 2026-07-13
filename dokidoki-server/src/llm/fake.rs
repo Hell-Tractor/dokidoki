@@ -52,6 +52,7 @@ mod tests {
             backend.chat(ChatRequest {
                 conversation_id: "c".into(),
                 turn_id: "t".into(),
+                messages: vec![],
             })
             .await
             .unwrap(),
@@ -61,6 +62,7 @@ mod tests {
             backend.chat(ChatRequest {
                 conversation_id: "c".into(),
                 turn_id: "t".into(),
+                messages: vec![],
             })
             .await
             .unwrap(),

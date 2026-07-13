@@ -8,10 +8,11 @@ use uuid::Uuid;
 use crate::{
     db::{message::Message, queries::messages as message_queries},
     error::AppError,
-    llm::{ChatRequest, LlmClient},
+    llm::LlmClient,
     ws_hub::WsHub,
 };
 
+mod context;
 pub mod parser;
 
 pub struct ChatService {
@@ -86,13 +87,9 @@ impl ChatService {
         turn_id: &str,
         user_message_id: &str,
     ) -> Result<(), AppError> {
-        let raw = self
-            .llm
-            .chat(ChatRequest {
-                conversation_id: conversation_id.to_owned(),
-                turn_id: turn_id.to_owned(),
-            })
-            .await?;
+        let request =
+            context::build_chat_request(&self.db, user_id, conversation_id, turn_id).await?;
+        let raw = self.llm.chat(request).await?;
 
         let bubbles = parser::parse_reply(&raw);
         if bubbles.is_empty() {

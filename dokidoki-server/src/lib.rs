@@ -4,6 +4,7 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod llm;
+pub mod persona;
 pub mod state;
 pub mod time;
 pub mod ws_hub;
