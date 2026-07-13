@@ -2,10 +2,11 @@
 -- 原型：《常轨脱离Creative》和泉妃爱；App 内角色名「小爱」
 -- 用法：mysql -u ... dokidoki < seeds/dev_characters.sql
 
-INSERT INTO characters (id, name, persona_json, schedule_json)
+INSERT INTO characters (id, name, avatar_path, persona_json, schedule_json)
 VALUES (
     '00000000-0000-4000-8000-000000000001',
     '小爱',
+    'avatars/00000000-0000-4000-8000-000000000001.png',
     CAST('{
         "name": "小爱",
         "personality_traits": [
@@ -110,6 +111,7 @@ VALUES (
 )
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
+    avatar_path = VALUES(avatar_path),
     persona_json = VALUES(persona_json),
     schedule_json = VALUES(schedule_json);
 

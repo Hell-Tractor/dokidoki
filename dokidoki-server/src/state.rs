@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use crate::{chat::ChatService, config, error::Result, llm::LlmClient, ws_hub::WsHub};
+use crate::{chat::ChatService, config, error::Result, llm::LlmClient, upload::UploadStore, ws_hub::WsHub};
 
 const CONFIG_PATH: &str = "config.toml";
 
 pub struct AppState {
     pub config: config::Config,
     pub db: sqlx::MySqlPool,
+    pub upload: UploadStore,
     pub llm: Arc<LlmClient>,
     pub ws_hub: Arc<WsHub>,
     pub chat: Arc<ChatService>,
@@ -24,12 +25,18 @@ impl AppState {
     }
 
     pub fn from_parts(config: config::Config, db: sqlx::MySqlPool) -> Self {
+        let upload = UploadStore::new(&config.upload.dir);
+        if let Err(err) = upload.ensure_dirs().and_then(|_| upload.bootstrap_avatars()) {
+            tracing::warn!("upload bootstrap skipped: {err}");
+        }
+
         let llm = Arc::new(LlmClient::from_config(&config.llm));
         let ws_hub = Arc::new(WsHub::new());
         let chat = Arc::new(ChatService::new(db.clone(), llm.clone(), ws_hub.clone()));
         Self {
             config,
             db,
+            upload,
             llm,
             ws_hub,
             chat,

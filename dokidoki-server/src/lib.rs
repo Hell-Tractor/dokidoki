@@ -7,6 +7,7 @@ pub mod llm;
 pub mod persona;
 pub mod state;
 pub mod time;
+pub mod upload;
 pub mod ws_hub;
 
 pub(crate) mod db;

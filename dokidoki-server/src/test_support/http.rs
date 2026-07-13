@@ -54,6 +54,67 @@ pub async fn get(app: &mut Router, uri: &str) -> (StatusCode, Value) {
     (status, json)
 }
 
+pub async fn get_bytes(app: &mut Router, uri: &str) -> (StatusCode, Vec<u8>, Option<String>) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes()
+        .to_vec();
+    (status, bytes, content_type)
+}
+
+pub async fn get_bytes_with_auth(
+    app: &mut Router,
+    uri: &str,
+    token: &str,
+) -> (StatusCode, Vec<u8>, Option<String>) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(uri)
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes()
+        .to_vec();
+    (status, bytes, content_type)
+}
+
 pub async fn get_with_auth(
     app: &mut Router,
     uri: &str,

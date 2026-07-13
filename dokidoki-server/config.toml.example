@@ -19,7 +19,7 @@ model = "deepseek-chat"
 vision_model = "deepseek-chat"        # 支持 vision 时填写
 
 [upload]
-dir = "/data/uploads"
+dir = "/data/uploads"                   # 角色头像在 avatars/ 子目录
 max_bytes = 10485760                  # 10MB
 allowed_types = ["image/jpeg", "image/png", "image/webp"]
 

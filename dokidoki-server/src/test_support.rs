@@ -15,6 +15,7 @@ static DB_TEST_LOCK: Mutex<()> = Mutex::new(());
 pub struct TestApp {
     pub app: Router,
     pub pool: MySqlPool,
+    pub upload_dir: std::path::PathBuf,
     _guard: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -40,7 +41,9 @@ pub async fn setup_app() -> TestApp {
         "TEST_DATABASE_URL is required for integration tests \
          (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
     );
-    let config = config::Config::for_test(url);
+    let mut config = config::Config::for_test(url);
+    let upload_dir = std::env::temp_dir().join(format!("dokidoki-upload-{}", uuid::Uuid::new_v4()));
+    config.upload.dir = upload_dir.to_string_lossy().into_owned();
 
     let pool = init_test_database(&config.database.url).await;
     reset_test_tables(&pool).await;
@@ -49,6 +52,7 @@ pub async fn setup_app() -> TestApp {
     TestApp {
         app: api::router(state),
         pool,
+        upload_dir,
         _guard: guard,
     }
 }
@@ -102,6 +106,19 @@ pub async fn test_pool() -> MySqlPool {
          (e.g. mysql://user:pass@127.0.0.1:3306/dokidoki_test)",
     );
     init_test_database(&url).await
+}
+
+pub async fn set_character_avatar_path(
+    pool: &MySqlPool,
+    character_id: &str,
+    avatar_path: &str,
+) {
+    sqlx::query("UPDATE characters SET avatar_path = ? WHERE id = ?")
+        .bind(avatar_path)
+        .bind(character_id)
+        .execute(pool)
+        .await
+        .expect("set character avatar_path");
 }
 
 pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {

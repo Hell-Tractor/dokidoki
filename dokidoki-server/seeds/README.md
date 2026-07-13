@@ -10,6 +10,8 @@
 
 固定 ID：`00000000-0000-4000-8000-000000000001`
 
+头像文件在 `assets/avatars/`；服务端启动时会同步到 `{upload.dir}/avatars/`（已存在则跳过）。种子 SQL 中 `avatar_path` 为相对路径，如 `avatars/{id}.png`。
+
 ## 执行
 
 ```bash

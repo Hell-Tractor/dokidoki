@@ -2,7 +2,9 @@
 
 按前后端分列；`- [x]` 已完成，`- [ ]` 未完成。优先级：P0 → P1 → P2+。
 
-> **当前里程碑**：前端 M-03 文本聊天已完成 → **下一步图片消息（M-04）**。
+> **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
+>
+> **当前里程碑**：**按角色设置（M-08）** → 图片消息（M-04）降至 P1。
 
 ---
 
@@ -44,32 +46,45 @@
 - [x] `POST /conversations`（幂等创建；破冰待 M-28）
 - [x] 角色种子数据（`seeds/dev_characters.sql`；开发手动执行，不进 migration）
 
-### M-03 / M-04 消息（P0）
+### 角色头像（P0，当前）
+
+- [x] 本地存储目录（`config.upload.dir`，`avatars/` 子目录）
+- [x] `GET /characters/{id}/avatar`（鉴权；读 `characters.avatar_path`；无文件时占位图）
+- [x] 种子/运维：为角色写入 `avatar_path`（小爱静态图 + 启动时 bootstrap）
+- [x] `GET /characters` 返回 `avatar_url`（前端已对接）
+
+### M-03 消息 · 文本（P0，已完成）
 
 - [x] `GET /conversations/{id}/messages`（分页）
 - [x] `POST /conversations/{id}/messages`（文本）
-- [x] 用户发文本后触发角色回复（Fake LLM）
+- [x] 用户发文本后触发角色回复（Fake / HTTP LLM）
+
+### M-04 消息 · 图片（P1，暂缓）
+
 - [ ] `POST /conversations/{id}/messages/image`（multipart）
 - [ ] `GET /messages/{id}/image`（鉴权 + 归属校验）
-- [ ] 图片本地存储（`/data/uploads`）
+- [ ] 聊天图片本地存储（`/data/uploads`）
+- [ ] _暂不做_：LLM 多模态识图回复（`llm/vision.rs`）
 
 ### 基础聊天（P0，前端启动前）
 
 - [x] `llm` 模块：`LlmClient` + `FakeLlmClient`
 - [x] `config.llm.mode = "fake"` + `fake_default`
 - [x] `POST /dev/llm/queue`（debug 构建；预设下一条 LLM 输出）
-- [x] `chat` 模块：`on_user_text_sent` → Fake LLM → 解析 `[REPLY]` → 落库
+- [x] `chat` 模块：`on_user_text_sent` → LLM → 解析 `[REPLY]` → 落库
+- [x] `chat/context.rs`：组装 system prompt + 最近消息历史
 - [x] `chat/parser.rs`：`[REPLY]` + `|||` 分气泡
 - [x] `ws_hub` + `GET /api/v1/ws` 鉴权
 - [x] WS：`connected` / `subscribe` / `ping` / `pong`
 - [x] WS 推送：`message`（角色回复）
 - [x] 集成测试：`tests/chat_api.rs`（DB + WS）
-- [ ] _暂不做_：burst、回复延迟、typing、`send_message` WS 发送、真 HTTP LLM
+- [ ] _暂不做_：burst、回复延迟、typing、`send_message` WS 发送
 
-### M-08 用户设置（P1）
+### M-08 按角色设置（P0，当前）
 
-- [ ] `GET /characters/{id}/settings`
-- [ ] `PUT /characters/{id}/settings`（勿扰时段，结合 `users.timezone`）
+- [ ] `GET /characters/{id}/settings`（勿扰时段等）
+- [ ] `PUT /characters/{id}/settings`（`dnd_start` / `dnd_end`，结合 `users.timezone`）
+- [ ] `user_character_settings` 查询与 upsert
 
 ### WebSocket（P0，扩展）
 
@@ -78,8 +93,9 @@
 
 ### M-05 角色人设（P0）
 
-- [ ] `persona` 模块：读取 `persona_json`、Prompt 静态层
-- [ ] Prompt 模板拼接（`persona/prompt.rs`）
+- [x] `persona` 模块：读取 `persona_json`、Prompt 静态层（MVP：T-01 + T-02）
+- [x] Prompt 模板拼接（`persona/prompt.rs`）
+- [ ] 完整 Prompt 组装（T-03～T-11 场景附加、CurrentState、记忆、摘要）
 
 ### M-06 日程与活动状态（P0）
 
@@ -139,14 +155,14 @@
 
 ### 外部适配器
 
-- [ ] `llm` 模块：OpenAI 兼容 HTTP 客户端（`mode = "http"`）
-- [ ] `llm/vision.rs`：图片多模态
+- [x] `llm/http.rs`：OpenAI 兼容 HTTP 客户端（`mode = "http"`）
+- [ ] `llm/vision.rs`：图片多模态（P1，随 M-04 图片消息一并实现）
 
 ---
 
 ## 前端（dokidoki-app）
 
-> M-03 文本聊天已完成；图片相关待 M-04。
+> M-03 文本聊天 + Settings 已完成；**当前：角色头像 + 按角色设置**；图片发收降至 P1。
 
 ### 项目骨架
 
@@ -169,8 +185,8 @@
 
 ### M-26 用户档案（P1）
 
-- [ ] P-05 SettingsPage：称呼、生日、时区编辑（`PATCH /me`）
-- [ ] 全局主动消息日上限 Stepper
+- [x] P-05 SettingsPage：称呼、生日、时区编辑（`PATCH /me`）
+- [x] 全局主动消息日上限 Stepper
 
 ### M-02 多角色会话（P0）
 
@@ -179,16 +195,19 @@
 - [x] 点击角色创建会话（`POST /conversations`）
 - [x] 进入 Home 建立全局 WS
 
-### M-03 / M-04 聊天与图片（P0）
+### M-03 聊天 · 文本（P0，已完成）
 
 - [x] P-04 ChatPage：消息列表分页（`GET /messages`）
 - [x] WS `subscribe(conversation_id)`
 - [x] 文本发送（`POST /messages`；后续可切 WS `send_message`）
 - [x] 收角色回复（WS `message`）
+- [x] 双方头像（连续同方仅首条显示；角色图经 `GET /avatar`）
+- [x] 历史消息加载（上拉 `before` 分页）
+
+### M-04 聊天 · 图片（P1，暂缓）
+
 - [ ] 图片发送（相册/相机 + 可选 caption）
 - [ ] 图片气泡展示与全屏预览
-- [x] 双方头像（连续同方仅首条显示）
-- [x] 历史消息加载（上拉 `before` 分页）
 
 ### M-13 Burst Chat 体验（P1）
 
@@ -201,14 +220,14 @@
 
 - [ ] 用户消息「已送达 → 已读」状态展示（`message_read`）
 
-### M-08 用户设置（P1）
+### M-08 按角色设置（P0，当前）
 
 - [ ] P-06 CharacterSettingsPage：勿扰时段（`GET/PUT /characters/{id}/settings`）
 - [ ] ChatPage ⋮ 菜单入口
 
 ### M-01 设置与连接（P0）
 
-- [ ] P-05 SettingsPage：Server URL 修改、退出登录
+- [x] P-05 SettingsPage：Server URL 修改、退出登录
 
 ### 推送（P1）
 
