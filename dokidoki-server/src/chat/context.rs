@@ -2,7 +2,7 @@ use serde_json::Value;
 use sqlx::MySqlPool;
 
 use crate::{
-    db::{models::Conversation, queries::{characters, messages, users}},
+    db::{models::Conversation, queries::{characters, memories, messages, users}},
     error::AppError,
     llm::{ChatRequest, LlmMessage},
     persona::{
@@ -19,6 +19,7 @@ struct PromptContext {
     character_name: String,
     user_display_name: String,
     current_state: Option<CurrentStatePrompt>,
+    memories: Vec<String>,
 }
 
 pub async fn build_chat_request(
@@ -35,6 +36,7 @@ pub async fn build_chat_request(
         &ctx.character_name,
         &ctx.user_display_name,
         ctx.current_state.as_ref(),
+        &ctx.memories,
     );
 
     let recent = messages::list_recent_text(pool, conversation_id, RECENT_MESSAGE_LIMIT).await?;
@@ -155,10 +157,14 @@ async fn load_prompt_context(
             random_event: state.random_event,
         });
 
+    let memory_rows = memories::list_active(pool, user_id, &conversation.character_id).await?;
+    let memories = memory_rows.into_iter().map(|row| row.content).collect();
+
     Ok(PromptContext {
         persona_json,
         character_name: character.name,
         user_display_name: user.display_name,
         current_state,
+        memories,
     })
 }

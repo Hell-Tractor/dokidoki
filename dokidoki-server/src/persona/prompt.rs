@@ -45,6 +45,21 @@ const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
    - 当你要去忙、上课、睡觉等，符合当前日程时使用
    - 示例：[END_TOPIC]我先去上课了|||等下聊
 
+4. 记住事实（可与 REPLY 同轮出现，写在 REPLY 之前）：
+   [STORE_MEMORY]内容|类型|memory_key
+   - 类型：trivial | normal | important | permanent
+   - memory_key 可选，用于覆盖旧记忆，如 food.strawberry
+   - 示例：[STORE_MEMORY]用户不喜欢草莓|permanent|food.strawberry
+
+5. 遗忘记忆（可与 REPLY 同轮出现，写在 REPLY 之前）：
+   [FORGET_MEMORY]memory_key
+   或 [FORGET_MEMORY]关键词
+   - 当用户否定之前说过的事时使用
+
+【同轮多动作示例】
+[STORE_MEMORY]用户今天很累|trivial
+[REPLY]怎么了？|||要不要跟我说说
+
 【skip_reply 倾向：{skip_reply_tendency}】
 - low：很少使用 [NO_REPLY]
 - medium：适当使用，用户「嗯」「哦」等可不回
@@ -66,6 +81,14 @@ const T19_TEMPLATE: &str = r#"【场景：第一次见面】
 不要自我介绍成 AI，不要解释你是谁的产品。
 不要问「有什么可以帮你的」。"#;
 
+const T04_WITH_MEMORIES_TEMPLATE: &str = r#"【你记得的关于 {user_display_name} 的事】
+{memory_list}
+
+使用记忆时要自然，不要像念清单。用户否定的事必须用 [FORGET_MEMORY] 或同 key 覆盖。"#;
+
+const T04_EMPTY_TEMPLATE: &str = r#"【记忆】
+暂无需要特别记住的事。"#;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentStatePrompt {
     pub weekday_zh: String,
@@ -81,6 +104,7 @@ pub fn build_system_prompt(
     character_name: &str,
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
+    memories: &[String],
 ) -> String {
     let name = persona
         .get("name")
@@ -125,7 +149,24 @@ pub fn build_system_prompt(
     if let Some(state) = current_state {
         parts.push(format_current_state_section(state));
     }
+    parts.push(format_memories_block(user_display_name, memories));
     parts.join("\n\n")
+}
+
+pub fn format_memories_block(user_display_name: &str, memories: &[String]) -> String {
+    if memories.is_empty() {
+        return T04_EMPTY_TEMPLATE.to_owned();
+    }
+
+    let memory_list = memories
+        .iter()
+        .map(|content| format!("- {content}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    T04_WITH_MEMORIES_TEMPLATE
+        .replace("{user_display_name}", user_display_name)
+        .replace("{memory_list}", &memory_list)
 }
 
 pub fn build_icebreaker_system_prompt(
@@ -134,7 +175,7 @@ pub fn build_icebreaker_system_prompt(
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
 ) -> String {
-    let base = build_system_prompt(persona, character_name, user_display_name, current_state);
+    let base = build_system_prompt(persona, character_name, user_display_name, current_state, &[]);
     let user_display_name = if user_display_name.trim().is_empty() {
         "你"
     } else {
@@ -207,7 +248,7 @@ mod tests {
             }
         });
 
-        let prompt = build_system_prompt(&persona, "默认名", "阿明", None);
+        let prompt = build_system_prompt(&persona, "默认名", "阿明", None, &[]);
 
         assert!(prompt.contains("你是 小爱"));
         assert!(prompt.contains("黏人、撒娇"));
@@ -218,7 +259,7 @@ mod tests {
 
     #[test]
     fn uses_fallbacks_for_empty_persona() {
-        let prompt = build_system_prompt(&json!({}), "小咲", "", None);
+        let prompt = build_system_prompt(&json!({}), "小咲", "", None, &[]);
 
         assert!(prompt.contains("你是 小咲"));
         assert!(prompt.contains("你称呼对方为「你」"));
@@ -234,7 +275,7 @@ mod tests {
             availability: "low".into(),
             random_event: Some("电脑坏了".into()),
         };
-        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state));
+        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state), &[]);
 
         assert!(prompt.contains("【当前状态】"));
         assert!(prompt.contains("你正在：工作"));
@@ -253,6 +294,20 @@ mod tests {
         };
         let section = format_current_state_section(&state);
         assert!(!section.contains("【今日变故】"));
+    }
+
+    #[test]
+    fn t04_includes_active_memories() {
+        let memories = vec!["用户不喜欢草莓".to_owned(), "用户昨天很累".to_owned()];
+        let block = format_memories_block("阿明", &memories);
+        assert!(block.contains("用户不喜欢草莓"));
+        assert!(block.contains("阿明"));
+    }
+
+    #[test]
+    fn t04_shows_empty_placeholder() {
+        let block = format_memories_block("阿明", &[]);
+        assert!(block.contains("暂无需要特别记住的事"));
     }
 
     #[test]

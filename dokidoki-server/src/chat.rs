@@ -29,7 +29,7 @@ mod reply_scheduler;
 use conversation_fsm::{
     on_user_message, status_after_llm_action, ConversationStatus, UserMessageDecision,
 };
-use parser::{parse_action, LlmAction};
+use parser::LlmAction;
 
 pub(super) struct ActiveDelivery {
     turn_id: String,
@@ -220,14 +220,21 @@ impl ChatService {
         let request =
             context::build_chat_request(&self.db, user_id, conversation_id, turn_id).await?;
         let raw = self.llm.chat(request).await?;
-        let action = parse_action(&raw);
+        let parsed = crate::memory::parse_llm_response(&raw);
+        crate::memory::apply_side_effects(
+            &self.db,
+            user_id,
+            &conversation.character_id,
+            &parsed,
+        )
+        .await?;
 
-        if let Some(status) = status_after_llm_action(action.clone()) {
+        if let Some(status) = status_after_llm_action(parsed.action.clone()) {
             self.update_conversation_status(conversation_id, status)
                 .await?;
         }
 
-        Ok(match action {
+        Ok(match parsed.action {
             LlmAction::NoReply => Vec::new(),
             LlmAction::Reply(bubbles) | LlmAction::EndTopic(bubbles) => bubbles,
         })

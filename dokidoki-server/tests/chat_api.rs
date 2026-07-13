@@ -311,6 +311,170 @@ async fn farewell_in_winding_down_moves_to_paused() {
 }
 
 #[tokio::test]
+async fn store_memory_action_persists_and_upserts_by_key() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    let (user_id, character_id): (String, String) = sqlx::query_as(
+        "SELECT user_id, character_id FROM conversations WHERE id = ?",
+    )
+    .bind(&conversation_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({
+            "responses": [
+                "[STORE_MEMORY]用户不喜欢草莓|permanent|food.strawberry\n[REPLY]记住了"
+            ]
+        }),
+    )
+    .await;
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "记住这个" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(300)).await;
+
+    let content: String = sqlx::query_scalar(
+        r#"
+        SELECT content
+        FROM user_memories
+        WHERE user_id = ? AND character_id = ? AND memory_key = ?
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&character_id)
+    .bind("food.strawberry")
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(content, "用户不喜欢草莓");
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({
+            "responses": [
+                "[STORE_MEMORY]用户喜欢草莓|permanent|food.strawberry\n[REPLY]好"
+            ]
+        }),
+    )
+    .await;
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "更新一下" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(300)).await;
+
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM user_memories
+        WHERE user_id = ? AND character_id = ? AND memory_key = ?
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&character_id)
+    .bind("food.strawberry")
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+
+    let updated: String = sqlx::query_scalar(
+        r#"
+        SELECT content
+        FROM user_memories
+        WHERE user_id = ? AND character_id = ? AND memory_key = ?
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&character_id)
+    .bind("food.strawberry")
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(updated, "用户喜欢草莓");
+}
+
+#[tokio::test]
+async fn forget_memory_action_removes_matching_memory() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    let (user_id, character_id): (String, String) = sqlx::query_as(
+        "SELECT user_id, character_id FROM conversations WHERE id = ?",
+    )
+    .bind(&conversation_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"
+        INSERT INTO user_memories (id, user_id, character_id, content, memory_type, memory_key)
+        VALUES (?, ?, ?, ?, 'permanent', ?)
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&user_id)
+    .bind(&character_id)
+    .bind("用户不喜欢草莓")
+    .bind("food.strawberry")
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[FORGET_MEMORY]food.strawberry\n[REPLY]好"] }),
+    )
+    .await;
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "我其实喜欢草莓" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(300)).await;
+
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM user_memories
+        WHERE user_id = ? AND character_id = ? AND memory_key = ?
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&character_id)
+    .bind("food.strawberry")
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
 async fn dev_llm_queue_empty_responses_returns_400() {
     let mut app = setup_app().await;
 

@@ -99,7 +99,8 @@
 - [x] `persona` 模块：读取 `persona_json`、Prompt 静态层（MVP：T-01 + T-02）
 - [x] Prompt 模板拼接（`persona/prompt.rs`）
 - [x] T-03 当前状态注入（随 M-06）
-- [ ] 完整 Prompt 组装（T-04～T-11 场景附加、记忆、摘要）
+- [x] T-04 有效记忆注入（随 M-16）
+- [ ] 完整 Prompt 组装（T-05～T-11 场景附加、摘要）
 
 ### M-06 日程与活动状态（P0，已完成）
 
@@ -137,10 +138,13 @@
 - [x] 活动段剩余时长上限
 - [x] `reply_wait` 等待期间不显示 typing / 已读（已读由 M-17 实现）
 
-### M-16 轻量记忆（P1）
+### M-16 轻量记忆（P1，已完成）
 
-- [ ] `memory` 模块：STORE / FORGET / 过期清理
-- [ ] 记忆去重与覆盖
+- [x] `memory` 模块：STORE / FORGET / 过期清理
+- [x] T-02 动作协议补充 `[STORE_MEMORY]` / `[FORGET_MEMORY]`
+- [x] T-04 有效记忆注入 `context.rs`
+- [x] `memory_key` UPSERT 去重与覆盖
+- [x] 每日过期记忆清理任务
 
 ### M-17 延迟已读（P1）
 
