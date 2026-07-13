@@ -134,5 +134,17 @@ pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {
     .execute(pool)
     .await
     .expect("insert test character");
+
+    sqlx::query(
+        r#"
+        INSERT INTO character_states (character_id, current_activity, current_mood, availability)
+        VALUES (?, '在线', '平静', 'high')
+        "#,
+    )
+    .bind(&id)
+    .execute(pool)
+    .await
+    .expect("insert test character state");
+
     id
 }

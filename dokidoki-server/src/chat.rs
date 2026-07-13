@@ -23,6 +23,7 @@ mod context;
 mod delivery;
 pub mod conversation_fsm;
 pub mod parser;
+mod read_receipt;
 mod reply_delay;
 mod reply_scheduler;
 
@@ -61,6 +62,13 @@ struct WsMessagePayload {
 struct WsTypingPayload {
     conversation_id: String,
     active: bool,
+}
+
+#[derive(Serialize)]
+struct WsMessageReadPayload {
+    conversation_id: String,
+    message_ids: Vec<String>,
+    read_at: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
@@ -131,7 +139,7 @@ impl ChatService {
             user_id,
             conversation_id,
             &burst.turn_id,
-            &burst.last_message_id,
+            &burst.message_ids,
         )
         .await
     }
@@ -284,6 +292,54 @@ impl ChatService {
                 },
             )
             .await;
+    }
+
+    pub(super) async fn emit_message_read(
+        &self,
+        user_id: &str,
+        conversation_id: &str,
+        message_ids: &[String],
+        read_at: DateTime<Utc>,
+    ) {
+        if message_ids.is_empty() {
+            return;
+        }
+
+        self.ws_hub
+            .emit_json(
+                user_id,
+                conversation_id,
+                "message_read",
+                WsMessageReadPayload {
+                    conversation_id: conversation_id.to_owned(),
+                    message_ids: message_ids.to_vec(),
+                    read_at,
+                },
+            )
+            .await;
+    }
+
+    pub(super) async fn mark_user_messages_read(
+        &self,
+        user_id: &str,
+        conversation_id: &str,
+        message_ids: &[String],
+    ) -> Result<Option<DateTime<Utc>>, AppError> {
+        let read_at = message_queries::mark_user_messages_read(
+            &self.db,
+            conversation_id,
+            user_id,
+            message_ids,
+        )
+        .await?;
+
+        let Some(read_at) = read_at else {
+            return Ok(None);
+        };
+
+        self.emit_message_read(user_id, conversation_id, message_ids, read_at)
+            .await;
+        Ok(Some(read_at))
     }
 
     pub(super) async fn emit_turn_cancelled(

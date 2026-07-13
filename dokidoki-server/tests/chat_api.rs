@@ -475,6 +475,59 @@ async fn forget_memory_action_removes_matching_memory() {
 }
 
 #[tokio::test]
+async fn read_receipt_arrives_before_character_reply() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[REPLY] 嗯？"] }),
+    )
+    .await;
+
+    let (_, send_body) = post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "在吗" }),
+    )
+    .await;
+
+    let user_message_id = send_body["data"]["id"].as_str().unwrap();
+
+    sleep(Duration::from_millis(800)).await;
+
+    let read_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT read_at FROM messages WHERE id = ?",
+    )
+    .bind(user_message_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(read_at.is_some());
+
+    let character_created_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT created_at
+        FROM messages
+        WHERE conversation_id = ? AND role = 'character'
+        ORDER BY created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(&conversation_id)
+    .fetch_optional(&app.pool)
+    .await
+    .unwrap()
+    .flatten();
+
+    assert!(character_created_at.is_some());
+    assert!(read_at.unwrap() <= character_created_at.unwrap());
+}
+
+#[tokio::test]
 async fn dev_llm_queue_empty_responses_returns_400() {
     let mut app = setup_app().await;
 

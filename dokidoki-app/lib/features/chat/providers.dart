@@ -53,6 +53,17 @@ class ChatNotifier extends AsyncNotifier<ChatState> {
           if (turnId != null) {
             _removeCharacterMessagesForTurn(turnId);
           }
+        case 'message_read':
+          final conversationId = event.payload['conversation_id'] as String?;
+          if (conversationId != context.conversationId) {
+            return;
+          }
+          final readAt = event.payload['read_at'] as String?;
+          final messageIds = (event.payload['message_ids'] as List<dynamic>?)
+                  ?.map((id) => id as String)
+                  .toList() ??
+              const <String>[];
+          _markMessagesRead(messageIds, readAt);
         default:
           break;
       }
@@ -216,5 +227,27 @@ class ChatNotifier extends AsyncNotifier<ChatState> {
       return;
     }
     state = AsyncData(current.copyWith(messages: filtered));
+  }
+
+  void _markMessagesRead(List<String> messageIds, String? readAt) {
+    if (readAt == null || messageIds.isEmpty) {
+      return;
+    }
+
+    final current = state.value;
+    if (current == null) {
+      return;
+    }
+
+    final idSet = messageIds.toSet();
+    final updated = current.messages
+        .map(
+          (message) => idSet.contains(message.id)
+              ? message.copyWith(readAt: readAt)
+              : message,
+        )
+        .toList();
+
+    state = AsyncData(current.copyWith(messages: updated));
   }
 }

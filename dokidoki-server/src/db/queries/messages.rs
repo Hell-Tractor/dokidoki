@@ -294,3 +294,47 @@ pub async fn insert_user_burst_text(
 
     Ok(message)
 }
+
+pub async fn mark_user_messages_read(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    user_id: &str,
+    message_ids: &[String],
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, AppError> {
+    if message_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let read_at = chrono::Utc::now();
+    let mut affected = 0u64;
+
+    for message_id in message_ids {
+        let result = sqlx::query(
+            r#"
+            UPDATE messages m
+            INNER JOIN conversations c ON c.id = m.conversation_id
+            SET m.read_at = ?
+            WHERE m.conversation_id = ?
+              AND c.user_id = ?
+              AND m.role = 'user'
+              AND m.read_at IS NULL
+              AND m.id = ?
+            "#,
+        )
+        .bind(read_at)
+        .bind(conversation_id)
+        .bind(user_id)
+        .bind(message_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::from_db)?;
+
+        affected += result.rows_affected();
+    }
+
+    if affected == 0 {
+        return Ok(None);
+    }
+
+    Ok(Some(read_at))
+}

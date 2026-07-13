@@ -9,6 +9,7 @@ use crate::{
     error::AppError,
 };
 
+use super::read_receipt::sample_read_receipt_delay_ms;
 use super::reply_delay::{activity_remaining_secs, compute_reply_wait_ms, ReplyDelayInput};
 use super::ChatService;
 
@@ -17,18 +18,40 @@ pub async fn schedule(
     user_id: &str,
     conversation_id: &str,
     turn_id: &str,
-    user_message_id: &str,
+    user_message_ids: &[String],
 ) -> Result<(), AppError> {
     let ctx = load_reply_context(chat, conversation_id).await?;
     let random_unit = (OsRng.next_u32() as f64) / (u32::MAX as f64);
-    let delay = Duration::from_millis(compute_reply_wait_ms(&ctx, random_unit));
-    // reply_wait 期间不显示 typing / 已读（已读由 M-17 在延迟窗口内调度）
-    tokio::time::sleep(delay).await;
+    let reply_wait_ms = compute_reply_wait_ms(&ctx, random_unit);
+    let read_delay_ms = sample_read_receipt_delay_ms(&ctx.availability, reply_wait_ms, random_unit);
+
+    tokio::time::sleep(Duration::from_millis(read_delay_ms)).await;
+    if let Err(err) = chat
+        .mark_user_messages_read(user_id, conversation_id, user_message_ids)
+        .await
+    {
+        tracing::warn!(
+            conversation_id = %conversation_id,
+            "delayed read receipt failed: {err}"
+        );
+    }
+
+    let remaining_wait_ms = reply_wait_ms.saturating_sub(read_delay_ms);
+    tokio::time::sleep(Duration::from_millis(remaining_wait_ms)).await;
+
+    let Some(user_message_id) = user_message_ids.last() else {
+        return Ok(());
+    };
 
     chat.emit_character_typing(user_id, conversation_id, true).await;
 
     let bubbles = match chat
-        .generate_character_bubbles(user_id, conversation_id, turn_id, user_message_id)
+        .generate_character_bubbles(
+            user_id,
+            conversation_id,
+            turn_id,
+            user_message_id,
+        )
         .await
     {
         Ok(bubbles) => bubbles,
@@ -48,7 +71,7 @@ pub async fn schedule(
         user_id,
         conversation_id,
         turn_id,
-        Some(user_message_id),
+        user_message_ids.last().map(String::as_str),
         bubbles,
     )
     .await?;

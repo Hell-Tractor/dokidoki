@@ -62,6 +62,23 @@ class ChatMessage {
     return content;
   }
 
+  bool get isRead => readAt != null;
+
+  ChatMessage copyWith({String? readAt}) {
+    return ChatMessage(
+      id: id,
+      conversationId: conversationId,
+      role: role,
+      content: content,
+      contentType: contentType,
+      turnId: turnId,
+      seqInTurn: seqInTurn,
+      createdAt: createdAt,
+      replyToId: replyToId,
+      readAt: readAt ?? this.readAt,
+    );
+  }
+
   factory ChatMessage.fromListJson(
     Map<String, dynamic> json, {
     required String conversationId,

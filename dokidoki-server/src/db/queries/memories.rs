@@ -4,6 +4,7 @@ use sqlx::MySqlPool;
 use crate::error::AppError;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[allow(unused)]
 pub struct UserMemory {
     pub id: String,
     pub content: String,

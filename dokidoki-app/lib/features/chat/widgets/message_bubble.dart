@@ -66,6 +66,14 @@ class MessageBubble extends StatelessWidget {
       ),
     );
 
+    final readIndicator = isUser && message.isRead
+        ? Icon(
+            Icons.done,
+            size: 14,
+            color: Colors.green.shade600,
+          )
+        : null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
@@ -73,7 +81,15 @@ class MessageBubble extends StatelessWidget {
             isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: isUser
-            ? [bubble, const SizedBox(width: 8), avatarWidget]
+            ? [
+                bubble,
+                if (readIndicator != null) ...[
+                  const SizedBox(width: 4),
+                  readIndicator,
+                ],
+                const SizedBox(width: 8),
+                avatarWidget,
+              ]
             : [avatarWidget, const SizedBox(width: 8), bubble],
       ),
     );
