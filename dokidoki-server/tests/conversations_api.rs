@@ -1,5 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
+use std::time::Duration;
+use tokio::time::sleep;
 
 use dokidoki_server::test_support::{
     http::{
@@ -133,4 +135,54 @@ async fn list_conversations_returns_user_conversations() {
     assert_eq!(body["data"][0]["character_name"], "小咲");
     assert!(body["data"][0]["last_message"].is_null());
     assert!(body["data"][0]["current_activity"].is_null());
+}
+
+#[tokio::test]
+async fn create_conversation_triggers_icebreaker_messages() {
+    let mut app = setup_app().await;
+    let character_id = insert_test_character(&app.pool, "小爱").await;
+    let token = register_and_token(&mut app).await;
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[REPLY] 嗨|||你终于来了"] }),
+    )
+    .await;
+
+    let (status, body) = post_json_with_auth(
+        &mut app,
+        "/api/v1/conversations",
+        &token,
+        json!({ "character_id": character_id }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    let conversation_id = body["data"]["id"].as_str().unwrap();
+
+    sleep(Duration::from_millis(300)).await;
+
+    let (_, messages_body) = get_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+    )
+    .await;
+
+    let messages = messages_body["data"]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "character");
+    assert_eq!(messages[0]["content"], "嗨");
+    assert_eq!(messages[1]["content"], "你终于来了");
+
+    let (_, existing_body) = post_json_with_auth(
+        &mut app,
+        "/api/v1/conversations",
+        &token,
+        json!({ "character_id": character_id }),
+    )
+    .await;
+
+    assert_eq!(existing_body["data"]["first_contact_done"], true);
 }

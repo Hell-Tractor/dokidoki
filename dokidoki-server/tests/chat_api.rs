@@ -27,6 +27,13 @@ async fn create_test_conversation(
     app: &mut dokidoki_server::test_support::TestApp,
     token: &str,
 ) -> String {
+    post_json(
+        app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[REPLY]"] }),
+    )
+    .await;
+
     let character_id = insert_test_character(&app.pool, "小咲").await;
     let (_, body) = post_json_with_auth(
         app,
@@ -35,6 +42,8 @@ async fn create_test_conversation(
         json!({ "character_id": character_id }),
     )
     .await;
+
+    sleep(Duration::from_millis(150)).await;
     body["data"]["id"].as_str().unwrap().to_owned()
 }
 

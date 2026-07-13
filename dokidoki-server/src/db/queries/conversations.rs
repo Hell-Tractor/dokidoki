@@ -125,3 +125,35 @@ async fn fetch_by_id(pool: &MySqlPool, id: &str) -> Result<Conversation, AppErro
         .await?
         .ok_or_else(|| AppError::internal(std::io::Error::other("conversation not found after insert")))
 }
+
+pub async fn try_begin_icebreaker(pool: &MySqlPool, conversation_id: &str) -> Result<bool, AppError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE conversations
+        SET first_contact_done = 1
+        WHERE id = ? AND first_contact_done = 0
+        "#,
+    )
+    .bind(conversation_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn rollback_icebreaker(pool: &MySqlPool, conversation_id: &str) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE conversations
+        SET first_contact_done = 0
+        WHERE id = ?
+        "#,
+    )
+    .bind(conversation_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(())
+}

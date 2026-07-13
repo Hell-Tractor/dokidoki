@@ -108,7 +108,19 @@ async fn create_conversation(
     AuthUser(user): AuthUser,
     ValidatedJson(body): ValidatedJson<CreateConversationRequest>,
 ) -> ApiResult<ConversationResponse> {
-    match conversations::get_or_create(&state.db, &user.id, &body.character_id).await? {
+    let result = conversations::get_or_create(&state.db, &user.id, &body.character_id).await?;
+    let conversation = match &result {
+        GetOrCreateConversationResult::Created(conversation) => conversation,
+        GetOrCreateConversationResult::Existing(conversation) => conversation,
+    };
+
+    if !conversation.first_contact_done {
+        state
+            .chat
+            .maybe_trigger_icebreaker(&user.id, &conversation.id);
+    }
+
+    match result {
         GetOrCreateConversationResult::Created(conversation) => {
             Ok(ApiResponse::created(conversation.into()))
         }

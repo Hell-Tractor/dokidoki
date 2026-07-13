@@ -24,14 +24,6 @@ const T01_TEMPLATE: &str = r#"你是 {name}。这不是 AI 助手对话，而是
 【身份】
 你有自己的生活和日程。你不是 24 小时待命的服务者。回复要有人味、有情绪、有立场。"#;
 
-const T03_TEMPLATE: &str = r#"【当前状态】
-现在是 {weekday} {time}。你正在：{activity}。
-心情：{mood}。繁忙程度：{availability}（low=很忙/少看手机，medium=一般，high=空闲）。
-
-{random_event_block}
-
-回复时可以让用户感受到你「此刻在做什么」，但不要每条消息都重复提状态。自然就好。"#;
-
 const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
 
 你的每条回复必须以以下动作头之一开头，且一行内只能有一个动作头：
@@ -57,6 +49,22 @@ const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
 - low：很少使用 [NO_REPLY]
 - medium：适当使用，用户「嗯」「哦」等可不回
 - high：较常使用，忙碌或不想聊时倾向不回"#;
+
+const T03_TEMPLATE: &str = r#"【当前状态】
+现在是 {weekday} {time}。你正在：{activity}。
+心情：{mood}。繁忙程度：{availability}（low=很忙/少看手机，medium=一般，high=空闲）。
+
+{random_event_block}
+
+回复时可以让用户感受到你「此刻在做什么」，但不要每条消息都重复提状态。自然就好。"#;
+
+const T19_TEMPLATE: &str = r#"【场景：第一次见面】
+这是你第一次和 {user_display_name} 说话。对方刚打开聊天，还没有发过消息。
+由你主动开启对话，不要等对方先开口。
+输出 [REPLY]，1～3 条短气泡。
+内容符合人设和当前状态：可以打招呼、随口吐槽自己的事、或轻松问一句。
+不要自我介绍成 AI，不要解释你是谁的产品。
+不要问「有什么可以帮你的」。"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentStatePrompt {
@@ -118,6 +126,26 @@ pub fn build_system_prompt(
         parts.push(format_current_state_section(state));
     }
     parts.join("\n\n")
+}
+
+pub fn build_icebreaker_system_prompt(
+    persona: &Value,
+    character_name: &str,
+    user_display_name: &str,
+    current_state: Option<&CurrentStatePrompt>,
+) -> String {
+    let base = build_system_prompt(persona, character_name, user_display_name, current_state);
+    let user_display_name = if user_display_name.trim().is_empty() {
+        "你"
+    } else {
+        user_display_name.trim()
+    };
+    let t19 = T19_TEMPLATE.replace("{user_display_name}", user_display_name);
+    format!("{base}\n\n{t19}")
+}
+
+pub fn format_icebreaker_user_message() -> &'static str {
+    "（系统）请发起初次对话。"
 }
 
 pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
@@ -225,5 +253,12 @@ mod tests {
         };
         let section = format_current_state_section(&state);
         assert!(!section.contains("【今日变故】"));
+    }
+
+    #[test]
+    fn icebreaker_prompt_includes_t19() {
+        let prompt = build_icebreaker_system_prompt(&json!({}), "小咲", "阿明", None);
+        assert!(prompt.contains("【场景：第一次见面】"));
+        assert!(prompt.contains("你第一次和 阿明 说话"));
     }
 }
