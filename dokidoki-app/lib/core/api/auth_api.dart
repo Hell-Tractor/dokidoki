@@ -46,6 +46,24 @@ class AuthApi {
       parser: (json) => AuthSession.fromJson(json as Map<String, dynamic>),
     );
   }
+
+  Future<User> patchMe({
+    String? displayName,
+    String? birthday,
+    String? timezone,
+    int? maxProactivePerDay,
+  }) {
+    return _client.patchData(
+      '/me',
+      data: {
+        'display_name': ?displayName,
+        'birthday': ?birthday,
+        'timezone': ?timezone,
+        'max_proactive_per_day': ?maxProactivePerDay,
+      },
+      parser: (json) => User.fromJson(json as Map<String, dynamic>),
+    );
+  }
 }
 
 Future<void> testServerConnection(String serverUrl) async {
