@@ -1,10 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use rand_core::{OsRng, RngCore};
 
-use crate::{config::Chat, error::AppError};
+use crate::{
+    db::queries::{character_states, characters, conversations as conversation_queries},
+    error::AppError,
+};
 
+use super::reply_delay::{activity_remaining_secs, compute_reply_wait_ms, ReplyDelayInput};
 use super::ChatService;
 
 pub async fn schedule(
@@ -14,7 +19,10 @@ pub async fn schedule(
     turn_id: &str,
     user_message_id: &str,
 ) -> Result<(), AppError> {
-    let delay = Duration::from_millis(sample_reply_delay_ms(&chat.chat_config));
+    let ctx = load_reply_context(chat, conversation_id).await?;
+    let random_unit = (OsRng.next_u32() as f64) / (u32::MAX as f64);
+    let delay = Duration::from_millis(compute_reply_wait_ms(&ctx, random_unit));
+    // reply_wait 期间不显示 typing / 已读（已读由 M-17 在延迟窗口内调度）
     tokio::time::sleep(delay).await;
 
     chat.emit_character_typing(user_id, conversation_id, true).await;
@@ -49,37 +57,40 @@ pub async fn schedule(
     Ok(())
 }
 
-pub fn sample_reply_delay_ms(config: &Chat) -> u64 {
-    let min = config.min_reply_delay_ms as u64;
-    let max = config.max_reply_delay_ms.max(config.min_reply_delay_ms) as u64;
-    if min >= max {
-        return min;
-    }
-    min + (OsRng.next_u32() as u64 % (max - min + 1))
-}
+async fn load_reply_context(
+    chat: &ChatService,
+    conversation_id: &str,
+) -> Result<ReplyDelayInput, AppError> {
+    let conversation = conversation_queries::find_by_id(&chat.db, conversation_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("会话不存在"))?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Chat;
+    let state = character_states::find_reply_fields(&chat.db, &conversation.character_id).await?;
+    let persona = characters::find_persona_json(&chat.db, &conversation.character_id)
+        .await?
+        .unwrap_or_else(|| serde_json::json!({}));
 
-    fn test_chat_config(min: u32, max: u32) -> Chat {
-        Chat {
-            burst_silence_ms: 1,
-            min_reply_delay_ms: min,
-            max_reply_delay_ms: max,
-            bubble_delay_base_ms: 1,
-            bubble_delay_per_char_ms: 1,
-        }
-    }
+    let availability = state
+        .as_ref()
+        .map(|row| row.availability.clone())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "medium".into());
 
-    #[test]
-    fn sample_reply_delay_within_bounds() {
-        let config = test_chat_config(300, 800);
-        for _ in 0..100 {
-            let delay = sample_reply_delay_ms(&config);
-            assert!(delay >= 300);
-            assert!(delay <= 800);
-        }
-    }
+    let activity_remaining_secs = activity_remaining_secs(
+        state.and_then(|row| row.activity_ends_at),
+        Utc::now(),
+    );
+
+    let proactive_tendency = persona
+        .get("conversation_behavior")
+        .and_then(|value| value.get("proactive_tendency"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("normal")
+        .to_owned();
+
+    Ok(ReplyDelayInput {
+        availability,
+        proactive_tendency,
+        activity_remaining_secs,
+    })
 }

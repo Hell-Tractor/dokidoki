@@ -4,6 +4,31 @@ use sqlx::MySqlPool;
 use crate::error::AppError;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CharacterStateReplyRow {
+    pub availability: String,
+    pub activity_ends_at: Option<DateTime<Utc>>,
+}
+
+pub async fn find_reply_fields(
+    pool: &MySqlPool,
+    character_id: &str,
+) -> Result<Option<CharacterStateReplyRow>, AppError> {
+    let row = sqlx::query_as::<_, CharacterStateReplyRow>(
+        r#"
+        SELECT availability, activity_ends_at
+        FROM character_states
+        WHERE character_id = ?
+        "#,
+    )
+    .bind(character_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(row)
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CharacterStatePromptRow {
     pub current_activity: String,
     pub current_mood: String,

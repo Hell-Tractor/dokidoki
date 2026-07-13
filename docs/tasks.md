@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：**M-13 Burst Chat**（进行中）→ 图片消息（M-04）降至 P1。
+> **当前里程碑**：**M-17 延迟已读回执**（待开始）→ 图片消息（M-04）降至 P1。
 
 ---
 
@@ -118,11 +118,11 @@
 
 - [ ] 角色/日程数据维护方式（SQL 或脚本，MVP 无 App 内编辑）
 
-### M-13 Burst Chat（P1，当前）
+### M-13 Burst Chat（P1，已完成）
 
 - [x] `chat/burst.rs`：静默窗口合并、turn 管理
 - [x] `chat/delivery.rs`：多气泡分时投递
-- [x] `chat/reply_scheduler.rs`：首响延迟（config min/max）
+- [x] `chat/reply_scheduler.rs`：availability 感知首响延迟（M-15）
 - [x] `chat/conversation_fsm.rs`：active / winding_down / paused
 
 ### M-14 选择性回复（P1，已完成）
@@ -131,10 +131,11 @@
 - [x] LLM `[END_TOPIC]` → `winding_down`；`[NO_REPLY]` → 无气泡
 - [x] 用户告别 / substantive 消息驱动 paused ↔ active
 
-### M-15 忙碌时回复延迟（P1）
+### M-15 忙碌时回复延迟（P1，已完成）
 
-- [ ] 基于 availability + 性格 + 随机性的首响延迟
-- [ ] 忙碌期间不发送 typing
+- [x] 基于 availability + `proactive_tendency` + jitter 计算 `reply_wait`
+- [x] 活动段剩余时长上限
+- [x] `reply_wait` 等待期间不显示 typing / 已读（已读由 M-17 实现）
 
 ### M-16 轻量记忆（P1）
 
