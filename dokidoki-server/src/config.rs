@@ -114,7 +114,7 @@ pub struct Chat {
     pub bubble_delay_per_char_ms: u32,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Summary {
     pub trigger_turns: u32,
     pub keep_recent_turns: u32,

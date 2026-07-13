@@ -194,3 +194,51 @@ pub async fn update_status(
 
     Ok(())
 }
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConversationSummaryFields {
+    pub summary: Option<String>,
+    pub summary_covers_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn find_summary_fields(
+    pool: &MySqlPool,
+    conversation_id: &str,
+) -> Result<Option<ConversationSummaryFields>, AppError> {
+    let row = sqlx::query_as::<_, ConversationSummaryFields>(
+        r#"
+        SELECT summary, summary_covers_until
+        FROM conversations
+        WHERE id = ?
+        "#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(row)
+}
+
+pub async fn update_summary(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    summary: &str,
+    covers_until: chrono::DateTime<chrono::Utc>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE conversations
+        SET summary = ?, summary_covers_until = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(summary)
+    .bind(covers_until)
+    .bind(conversation_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(())
+}

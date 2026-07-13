@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -9,7 +10,7 @@ use tokio::sync::{watch, Mutex};
 use uuid::Uuid;
 
 use crate::{
-    config::Chat,
+    config::{Chat, Summary},
     db::queries::{characters, conversations as conversation_queries, messages as message_queries},
     db::message::Message,
     domain::messages::SentTextMessage,
@@ -42,8 +43,10 @@ pub struct ChatService {
     pub(super) llm: Arc<LlmClient>,
     pub(super) ws_hub: Arc<WsHub>,
     pub(super) chat_config: Chat,
-    pub(super) burst_buffers: Arc<Mutex<HashMap<String, burst::BurstBuffer>>>,
+    pub(super) summary_config: Summary,
+    burst_buffers: Arc<Mutex<HashMap<String, burst::BurstBuffer>>>,
     pub(super) active_deliveries: Arc<Mutex<HashMap<String, ActiveDelivery>>>,
+    pub(super) compacting: Arc<Mutex<HashSet<String>>>,
 }
 
 #[derive(Serialize)]
@@ -98,15 +101,31 @@ impl ChatService {
         llm: Arc<LlmClient>,
         ws_hub: Arc<WsHub>,
         chat_config: Chat,
+        summary_config: Summary,
     ) -> Self {
         Self {
             db,
             llm,
             ws_hub,
             chat_config,
+            summary_config,
             burst_buffers: Arc::new(Mutex::new(HashMap::new())),
             active_deliveries: Arc::new(Mutex::new(HashMap::new())),
+            compacting: Arc::new(Mutex::new(HashSet::new())),
         }
+    }
+
+    pub fn spawn_maybe_compact(self: &Arc<Self>, conversation_id: &str) {
+        let chat = Arc::clone(self);
+        let conversation_id = conversation_id.to_owned();
+        tokio::spawn(async move {
+            if let Err(err) = crate::summary::maybe_compact(&chat, &conversation_id).await {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    "summary compact failed: {err}"
+                );
+            }
+        });
     }
 
     pub async fn ingest_user_text(
@@ -178,6 +197,7 @@ impl ChatService {
         self.emit_character_typing(user_id, conversation_id, true).await;
         delivery::deliver_staggered(self, user_id, conversation_id, &turn_id, None, bubbles).await?;
         self.emit_character_typing(user_id, conversation_id, false).await;
+        self.spawn_maybe_compact(conversation_id);
         Ok(())
     }
 
@@ -225,8 +245,14 @@ impl ChatService {
             }
         }
 
-        let request =
-            context::build_chat_request(&self.db, user_id, conversation_id, turn_id).await?;
+        let request = context::build_chat_request(
+            &self.db,
+            user_id,
+            conversation_id,
+            turn_id,
+            self.summary_config.keep_recent_turns,
+        )
+        .await?;
         let raw = self.llm.chat(request).await?;
         let parsed = crate::memory::parse_llm_response(&raw);
         crate::memory::apply_side_effects(

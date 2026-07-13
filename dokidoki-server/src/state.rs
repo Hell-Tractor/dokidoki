@@ -37,6 +37,7 @@ impl AppState {
             llm.clone(),
             ws_hub.clone(),
             config.chat.clone(),
+            config.summary.clone(),
         ));
         Self {
             config,

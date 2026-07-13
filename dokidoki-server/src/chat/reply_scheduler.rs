@@ -63,6 +63,7 @@ pub async fn schedule(
 
     if bubbles.is_empty() {
         chat.emit_character_typing(user_id, conversation_id, false).await;
+        chat.spawn_maybe_compact(conversation_id);
         return Ok(());
     }
 
@@ -77,6 +78,7 @@ pub async fn schedule(
     .await?;
 
     chat.emit_character_typing(user_id, conversation_id, false).await;
+    chat.spawn_maybe_compact(conversation_id);
     Ok(())
 }
 

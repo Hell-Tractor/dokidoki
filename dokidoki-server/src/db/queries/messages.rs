@@ -112,41 +112,6 @@ pub async fn list_page(
     Ok((rows, has_more))
 }
 
-pub async fn list_recent_text(
-    pool: &MySqlPool,
-    conversation_id: &str,
-    limit: u32,
-) -> Result<Vec<Message>, AppError> {
-    let mut rows = sqlx::query_as::<_, Message>(
-        r#"
-        SELECT
-            id,
-            role,
-            content,
-            content_type,
-            turn_id,
-            seq_in_turn,
-            metadata,
-            reply_to_id,
-            read_at,
-            created_at
-        FROM messages
-        WHERE conversation_id = ?
-          AND content_type = 'text'
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(AppError::from_db)?;
-
-    rows.reverse();
-    Ok(rows)
-}
-
 pub async fn insert_character_text(
     pool: &MySqlPool,
     id: &str,
@@ -337,4 +302,87 @@ pub async fn mark_user_messages_read(
     }
 
     Ok(Some(read_at))
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TurnRow {
+    pub turn_id: String,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn list_turns(pool: &MySqlPool, conversation_id: &str) -> Result<Vec<TurnRow>, AppError> {
+    let rows = sqlx::query_as::<_, TurnRow>(
+        r#"
+        SELECT turn_id, MIN(created_at) AS started_at
+        FROM messages
+        WHERE conversation_id = ?
+          AND turn_id IS NOT NULL
+        GROUP BY turn_id
+        ORDER BY started_at ASC, turn_id ASC
+        "#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(rows)
+}
+
+pub async fn list_text_messages_for_turn_ids(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    turn_ids: &[String],
+) -> Result<Vec<Message>, AppError> {
+    if turn_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut all = Vec::new();
+    for turn_id in turn_ids {
+        let mut rows = sqlx::query_as::<_, Message>(
+            r#"
+            SELECT
+                id,
+                role,
+                content,
+                content_type,
+                turn_id,
+                seq_in_turn,
+                metadata,
+                reply_to_id,
+                read_at,
+                created_at
+            FROM messages
+            WHERE conversation_id = ?
+              AND turn_id = ?
+              AND content_type = 'text'
+            ORDER BY seq_in_turn ASC, created_at ASC, id ASC
+            "#,
+        )
+        .bind(conversation_id)
+        .bind(turn_id)
+        .fetch_all(pool)
+        .await
+        .map_err(AppError::from_db)?;
+        all.append(&mut rows);
+    }
+
+    Ok(all)
+}
+
+pub async fn list_text_messages_for_recent_turns(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    keep_recent_turns: u32,
+) -> Result<Vec<Message>, AppError> {
+    let turns = list_turns(pool, conversation_id).await?;
+    let keep = keep_recent_turns as usize;
+    if turns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let start = turns.len().saturating_sub(keep);
+    let turn_ids: Vec<String> = turns[start..].iter().map(|turn| turn.turn_id.clone()).collect();
+    list_text_messages_for_turn_ids(pool, conversation_id, &turn_ids).await
 }

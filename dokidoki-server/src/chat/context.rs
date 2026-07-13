@@ -2,17 +2,15 @@ use serde_json::Value;
 use sqlx::MySqlPool;
 
 use crate::{
-    db::{models::Conversation, queries::{characters, memories, messages, users}},
+    db::{models::Conversation, queries::{characters, conversations, memories, messages, users}},
     error::AppError,
     llm::{ChatRequest, LlmMessage},
-    persona::{
+    prompt::{
         build_icebreaker_system_prompt, build_system_prompt, format_icebreaker_user_message,
         CurrentStatePrompt,
     },
     schedule,
 };
-
-const RECENT_MESSAGE_LIMIT: u32 = 20;
 
 struct PromptContext {
     persona_json: Value,
@@ -20,6 +18,7 @@ struct PromptContext {
     user_display_name: String,
     current_state: Option<CurrentStatePrompt>,
     memories: Vec<String>,
+    summary: Option<String>,
 }
 
 pub async fn build_chat_request(
@@ -27,6 +26,7 @@ pub async fn build_chat_request(
     user_id: &str,
     conversation_id: &str,
     turn_id: &str,
+    keep_recent_turns: u32,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
@@ -37,9 +37,12 @@ pub async fn build_chat_request(
         &ctx.user_display_name,
         ctx.current_state.as_ref(),
         &ctx.memories,
+        ctx.summary.as_deref(),
     );
 
-    let recent = messages::list_recent_text(pool, conversation_id, RECENT_MESSAGE_LIMIT).await?;
+    let recent =
+        messages::list_text_messages_for_recent_turns(pool, conversation_id, keep_recent_turns)
+            .await?;
 
     let mut llm_messages = vec![LlmMessage {
         role: "system".into(),
@@ -115,7 +118,7 @@ async fn load_owned_conversation(
     user_id: &str,
     conversation_id: &str,
 ) -> Result<Conversation, AppError> {
-    let conversation = crate::db::queries::conversations::find_by_id(pool, conversation_id)
+    let conversation = conversations::find_by_id(pool, conversation_id)
         .await?
         .ok_or_else(|| AppError::not_found("会话不存在"))?;
 
@@ -160,11 +163,16 @@ async fn load_prompt_context(
     let memory_rows = memories::list_active(pool, user_id, &conversation.character_id).await?;
     let memories = memory_rows.into_iter().map(|row| row.content).collect();
 
+    let summary = conversations::find_summary_fields(pool, &conversation.id)
+        .await?
+        .and_then(|fields| fields.summary);
+
     Ok(PromptContext {
         persona_json,
         character_name: character.name,
         user_display_name: user.display_name,
         current_state,
         memories,
+        summary,
     })
 }

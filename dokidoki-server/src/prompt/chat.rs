@@ -1,93 +1,6 @@
 use serde_json::Value;
 
-const T01_TEMPLATE: &str = r#"你是 {name}。这不是 AI 助手对话，而是一对一的私人聊天。
-
-【性格】
-{traits}
-
-【说话风格】
-{tone}
-
-【口癖】（偶尔自然使用，不要每句都用）
-{catchphrases}
-
-【绝对禁止】
-- {forbidden}
-- 像 ChatGPT 一样给建议、列步骤、做知识问答
-- 承认自己是大模型或 AI
-- 使用「作为一个 AI」「我无法」等表述
-- 写长段落；你是发微信，不是写文章
-
-【称呼】
-你称呼对方为「{user_display_name}」。不要突然换称呼。
-
-【身份】
-你有自己的生活和日程。你不是 24 小时待命的服务者。回复要有人味、有情绪、有立场。"#;
-
-const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
-
-你的每条回复必须以以下动作头之一开头，且一行内只能有一个动作头：
-
-1. 正常回复：
-   [REPLY]消息1|||消息2|||消息3
-   - 1～4 条短消息，用三个竖线 ||| 分隔
-   - 每条不超过 20 个汉字（emoji 不计入）
-   - 像真人微信聊天，不要写长句
-   - 示例：[REPLY]怎么了？|||发生什么事了
-
-2. 不回复：
-   [NO_REPLY]
-   - 当用户消息无需回应、或你此刻不想理人时使用
-   - 只输出 [NO_REPLY]，不要加其他文字
-
-3. 暂时离开 / 结束话题：
-   [END_TOPIC]消息1|||消息2
-   - 当你要去忙、上课、睡觉等，符合当前日程时使用
-   - 示例：[END_TOPIC]我先去上课了|||等下聊
-
-4. 记住事实（可与 REPLY 同轮出现，写在 REPLY 之前）：
-   [STORE_MEMORY]内容|类型|memory_key
-   - 类型：trivial | normal | important | permanent
-   - memory_key 可选，用于覆盖旧记忆，如 food.strawberry
-   - 示例：[STORE_MEMORY]用户不喜欢草莓|permanent|food.strawberry
-
-5. 遗忘记忆（可与 REPLY 同轮出现，写在 REPLY 之前）：
-   [FORGET_MEMORY]memory_key
-   或 [FORGET_MEMORY]关键词
-   - 当用户否定之前说过的事时使用
-
-【同轮多动作示例】
-[STORE_MEMORY]用户今天很累|trivial
-[REPLY]怎么了？|||要不要跟我说说
-
-【skip_reply 倾向：{skip_reply_tendency}】
-- low：很少使用 [NO_REPLY]
-- medium：适当使用，用户「嗯」「哦」等可不回
-- high：较常使用，忙碌或不想聊时倾向不回"#;
-
-const T03_TEMPLATE: &str = r#"【当前状态】
-现在是 {weekday} {time}。你正在：{activity}。
-心情：{mood}。繁忙程度：{availability}（low=很忙/少看手机，medium=一般，high=空闲）。
-
-{random_event_block}
-
-回复时可以让用户感受到你「此刻在做什么」，但不要每条消息都重复提状态。自然就好。"#;
-
-const T19_TEMPLATE: &str = r#"【场景：第一次见面】
-这是你第一次和 {user_display_name} 说话。对方刚打开聊天，还没有发过消息。
-由你主动开启对话，不要等对方先开口。
-输出 [REPLY]，1～3 条短气泡。
-内容符合人设和当前状态：可以打招呼、随口吐槽自己的事、或轻松问一句。
-不要自我介绍成 AI，不要解释你是谁的产品。
-不要问「有什么可以帮你的」。"#;
-
-const T04_WITH_MEMORIES_TEMPLATE: &str = r#"【你记得的关于 {user_display_name} 的事】
-{memory_list}
-
-使用记忆时要自然，不要像念清单。用户否定的事必须用 [FORGET_MEMORY] 或同 key 覆盖。"#;
-
-const T04_EMPTY_TEMPLATE: &str = r#"【记忆】
-暂无需要特别记住的事。"#;
+use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T19};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentStatePrompt {
@@ -105,6 +18,7 @@ pub fn build_system_prompt(
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
     memories: &[String],
+    summary: Option<&str>,
 ) -> String {
     let name = persona
         .get("name")
@@ -135,7 +49,7 @@ pub fn build_system_prompt(
         user_display_name.trim()
     };
 
-    let t01 = T01_TEMPLATE
+    let t01 = T01
         .replace("{name}", name)
         .replace("{traits}", &traits)
         .replace("{tone}", &tone)
@@ -143,19 +57,26 @@ pub fn build_system_prompt(
         .replace("{forbidden}", &forbidden)
         .replace("{user_display_name}", user_display_name);
 
-    let t02 = T02_TEMPLATE.replace("{skip_reply_tendency}", skip_reply_tendency);
+    let t02 = T02.replace("{skip_reply_tendency}", skip_reply_tendency);
 
     let mut parts = vec![t01, t02];
     if let Some(state) = current_state {
         parts.push(format_current_state_section(state));
     }
     parts.push(format_memories_block(user_display_name, memories));
+    if let Some(summary) = summary.filter(|value| !value.is_empty()) {
+        parts.push(format_summary_block(summary));
+    }
     parts.join("\n\n")
+}
+
+pub fn format_summary_block(summary: &str) -> String {
+    T05.replace("{summary}", summary.trim())
 }
 
 pub fn format_memories_block(user_display_name: &str, memories: &[String]) -> String {
     if memories.is_empty() {
-        return T04_EMPTY_TEMPLATE.to_owned();
+        return T04_EMPTY.to_owned();
     }
 
     let memory_list = memories
@@ -164,7 +85,7 @@ pub fn format_memories_block(user_display_name: &str, memories: &[String]) -> St
         .collect::<Vec<_>>()
         .join("\n");
 
-    T04_WITH_MEMORIES_TEMPLATE
+    T04_WITH_MEMORIES
         .replace("{user_display_name}", user_display_name)
         .replace("{memory_list}", &memory_list)
 }
@@ -175,13 +96,13 @@ pub fn build_icebreaker_system_prompt(
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
 ) -> String {
-    let base = build_system_prompt(persona, character_name, user_display_name, current_state, &[]);
+    let base = build_system_prompt(persona, character_name, user_display_name, current_state, &[], None);
     let user_display_name = if user_display_name.trim().is_empty() {
         "你"
     } else {
         user_display_name.trim()
     };
-    let t19 = T19_TEMPLATE.replace("{user_display_name}", user_display_name);
+    let t19 = T19.replace("{user_display_name}", user_display_name);
     format!("{base}\n\n{t19}")
 }
 
@@ -197,7 +118,7 @@ pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
         .map(|event| format!("【今日变故】{event}\n"))
         .unwrap_or_default();
 
-    T03_TEMPLATE
+    T03
         .replace("{weekday}", &state.weekday_zh)
         .replace("{time}", &state.time_hm)
         .replace("{activity}", &state.activity)
@@ -248,7 +169,7 @@ mod tests {
             }
         });
 
-        let prompt = build_system_prompt(&persona, "默认名", "阿明", None, &[]);
+        let prompt = build_system_prompt(&persona, "默认名", "阿明", None, &[], None);
 
         assert!(prompt.contains("你是 小爱"));
         assert!(prompt.contains("黏人、撒娇"));
@@ -259,7 +180,7 @@ mod tests {
 
     #[test]
     fn uses_fallbacks_for_empty_persona() {
-        let prompt = build_system_prompt(&json!({}), "小咲", "", None, &[]);
+        let prompt = build_system_prompt(&json!({}), "小咲", "", None, &[], None);
 
         assert!(prompt.contains("你是 小咲"));
         assert!(prompt.contains("你称呼对方为「你」"));
@@ -275,7 +196,7 @@ mod tests {
             availability: "low".into(),
             random_event: Some("电脑坏了".into()),
         };
-        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state), &[]);
+        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state), &[], None);
 
         assert!(prompt.contains("【当前状态】"));
         assert!(prompt.contains("你正在：工作"));
@@ -294,6 +215,13 @@ mod tests {
         };
         let section = format_current_state_section(&state);
         assert!(!section.contains("【今日变故】"));
+    }
+
+    #[test]
+    fn t05_includes_summary_block() {
+        let block = format_summary_block("用户和小咲聊了工作的事");
+        assert!(block.contains("更早之前的聊天摘要"));
+        assert!(block.contains("用户和小咲聊了工作的事"));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：**M-27 长会话摘要**（待开始）→ 图片消息（M-04）降至 P1。
+> **当前里程碑**：**M-07 主动消息**（待开始）→ 图片消息（M-04）降至 P1。
 
 ---
 
@@ -100,7 +100,8 @@
 - [x] Prompt 模板拼接（`persona/prompt.rs`）
 - [x] T-03 当前状态注入（随 M-06）
 - [x] T-04 有效记忆注入（随 M-16）
-- [ ] 完整 Prompt 组装（T-05～T-11 场景附加、摘要）
+- [x] T-05 会话摘要注入（随 M-27）
+- [ ] 完整 Prompt 组装（T-06～T-11 场景附加）
 
 ### M-06 日程与活动状态（P0，已完成）
 
@@ -152,15 +153,15 @@
 - [x] `high` availability 接近即时已读
 - [x] 更新 `messages.read_at` 并 WS 推送
 
-### M-27 长会话摘要（P1）
+### M-27 长会话摘要（P1，已完成）
 
-- [ ] `summary/maybe_compact`：超阈值异步触发、conversation 锁
-- [ ] turn 计数与窗口切分（按 `turn_id`，非 message 条数）
-- [ ] T-20 摘要 LLM 调用 + 增量合并
-- [ ] `conversations.summary` + `summary_covers_until` 持久化
-- [ ] `context.rs`：T-05 注入 + 按 turn 取历史
-- [ ] 默认 `trigger_turns=80`、`keep_recent_turns=40`
-- [ ] 单元测试：触发边界、增量合并、失败回退
+- [x] `summary/maybe_compact`：超阈值异步触发、conversation 锁
+- [x] turn 计数与窗口切分（按 `turn_id`，非 message 条数）
+- [x] T-20 摘要 LLM 调用 + 增量合并
+- [x] `conversations.summary` + `summary_covers_until` 持久化
+- [x] `context.rs`：T-05 注入 + 按 turn 取历史
+- [x] 默认 `trigger_turns=80`、`keep_recent_turns=40`
+- [x] 单元测试：触发边界、增量合并
 
 ### M-28 初识破冰（P1，已完成）
 
