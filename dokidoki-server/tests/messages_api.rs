@@ -188,3 +188,19 @@ async fn list_messages_supports_before_pagination() {
     assert_eq!(messages[0]["content"], "一");
     assert_eq!(body["data"]["has_more"], false);
 }
+
+#[tokio::test]
+async fn list_messages_invalid_limit_returns_400() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    let (status, body) = get_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages?limit=200"),
+        &token,
+    )
+    .await;
+
+    assert_error(status, &body, StatusCode::BAD_REQUEST, "BAD_REQUEST");
+}

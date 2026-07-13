@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use axum::{
     Json,
-    extract::{FromRequest, FromRequestParts, Request},
+    extract::{FromRequest, FromRequestParts, Query, Request},
     http::request::Parts,
 };
 use serde::de::DeserializeOwned;
@@ -42,7 +42,7 @@ where
     }
 }
 
-/// 反序列化 JSON 请求体并执行 `validator` 校验。
+/// 反序列化 JSON 请求体并执行 `validator` 校验。见 `ValidatedQuery`（query 参数）。
 ///
 /// ```ignore
 /// async fn register(ValidatedJson(body): ValidatedJson<RegisterRequest>) -> ApiResult<_> {
@@ -76,6 +76,37 @@ where
             .map_err(|err| AppError::bad_request(format_validation_errors(&err)))?;
 
         Ok(ValidatedJson(value))
+    }
+}
+
+/// 反序列化 query 参数并执行 `validator` 校验。
+pub struct ValidatedQuery<T>(pub T);
+
+impl<T> Deref for ValidatedQuery<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T, S> FromRequestParts<S> for ValidatedQuery<T>
+where
+    T: DeserializeOwned + Validate + Send,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let Query(value) = Query::<T>::from_request_parts(parts, state)
+            .await
+            .map_err(|err| AppError::bad_request(err.to_string()))?;
+
+        value
+            .validate()
+            .map_err(|err| AppError::bad_request(format_validation_errors(&err)))?;
+
+        Ok(ValidatedQuery(value))
     }
 }
 

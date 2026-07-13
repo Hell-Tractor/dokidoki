@@ -148,7 +148,16 @@ db → 无上层依赖
 
 ### 6.1 校验与领域输入
 
-- **格式校验**（长度、范围等）属于传输层：`Request` struct 放在 `api/rest/`，derive `Deserialize` + `Validate`，经 `ValidatedJson` 在 handler 入口完成
+**所有 API 输入参数均须校验**，无例外（含 JSON body、query、path、multipart、WebSocket 客户端消息等）。未校验的输入不得进入 handler 业务逻辑。
+
+| 输入来源 | 传输层做法 |
+|----------|------------|
+| JSON body | `ValidatedJson<T>`，`T: Deserialize + Validate` |
+| Query | `ValidatedQuery<T>`，`T: Deserialize + Validate` |
+| Path / 其他 | 在 Request struct 或 handler 入口用 `validator` / 专用函数校验格式与范围 |
+| WebSocket | 定义 typed payload，`Deserialize + Validate` 后再处理（非法帧返回错误或不执行） |
+
+- **格式校验**（长度、范围、枚举、正则等）属于传输层：Request / Query struct 放在 `api/rest/`，derive `Deserialize` + `Validate`，经上述 extractor 在 handler 入口完成
 - 校验通过后，用 `From<Request>` 转为领域 **Input**（纯数据 struct，无 serde/validator），再调领域函数
 - 字段一致时 Input 与 Request 仍分属两层（协议 vs 领域），用 `From` 衔接，**不**维护 Params 式第三份镜像
 - **业务校验**（trim 后为空、资源归属、幂等等）在领域层，不在 `validator` 里

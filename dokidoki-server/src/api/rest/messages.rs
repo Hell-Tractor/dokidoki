@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     routing::get,
     Router,
 };
@@ -11,7 +11,7 @@ use validator::Validate;
 
 use crate::{
     api::{
-        extractors::{AuthUser, ValidatedJson},
+        extractors::{AuthUser, ValidatedJson, ValidatedQuery},
         response::{ApiResponse, ApiResult},
     },
     db::message::{Message, CONTENT_TYPE_IMAGE, CONTENT_TYPE_TEXT},
@@ -23,10 +23,12 @@ pub fn api() -> Router<Arc<AppState>> {
     Router::new().route("/", get(list_messages).post(create_message))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Validate)]
 struct ListMessagesQuery {
+    #[validate(length(min = 1, max = 36))]
     before: Option<String>,
     #[serde(default = "default_limit")]
+    #[validate(range(min = 1, max = 100))]
     limit: u32,
 }
 
@@ -163,15 +165,14 @@ async fn list_messages(
     State(state): State<Arc<AppState>>,
     AuthUser(user): AuthUser,
     Path(conversation_id): Path<String>,
-    Query(query): Query<ListMessagesQuery>,
+    ValidatedQuery(query): ValidatedQuery<ListMessagesQuery>,
 ) -> ApiResult<ListMessagesResponse> {
-    let limit = query.limit.clamp(1, 100);
     let page = messages::list_for_conversation(
         &state.db,
         &user.id,
         &conversation_id,
         query.before.as_deref(),
-        limit,
+        query.limit,
     )
     .await?;
 

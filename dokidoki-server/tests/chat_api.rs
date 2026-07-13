@@ -194,6 +194,21 @@ async fn ws_receives_character_reply_after_subscribe() {
 }
 
 #[tokio::test]
+async fn dev_llm_queue_empty_responses_returns_400() {
+    let mut app = setup_app().await;
+
+    let (status, body) = post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": [] }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "BAD_REQUEST");
+}
+
+#[tokio::test]
 async fn ws_ping_returns_pong() {
     use axum::http::header::AUTHORIZATION;
     use futures_util::{SinkExt, StreamExt};

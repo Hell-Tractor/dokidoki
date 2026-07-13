@@ -8,7 +8,7 @@ mod rest;
 mod response;
 mod ws;
 
-pub use extractors::{AuthUser, ValidatedJson};
+pub use extractors::{AuthUser, ValidatedJson, ValidatedQuery};
 
 pub fn router(state: Arc<AppState>) -> axum::Router {
     axum::Router::new()

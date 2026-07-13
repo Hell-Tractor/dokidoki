@@ -187,3 +187,21 @@ async fn get_settings_unknown_character_returns_404() {
 
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn put_settings_invalid_wall_clock_returns_400() {
+    let mut app = setup_app().await;
+    let character_id = insert_test_character(&app.pool, "小咲").await;
+    let token = register_and_token(&mut app).await;
+
+    let (status, body) = put_json_with_auth(
+        &mut app,
+        &format!("/api/v1/characters/{character_id}/settings"),
+        &token,
+        json!({ "dnd_start": "25:99" }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "BAD_REQUEST");
+}

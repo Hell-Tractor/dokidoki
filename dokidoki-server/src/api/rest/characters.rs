@@ -8,10 +8,11 @@ use axum::{
     Router,
 };
 use chrono::NaiveTime;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use validator::Validate;
 
 use crate::{
-    api::{extractors::AuthUser, response::ApiResponse, response::ApiResult},
+    api::{extractors::AuthUser, response::ApiResponse, response::ApiResult, ValidatedJson},
     domain::{
         avatar,
         character_settings::{
@@ -73,35 +74,82 @@ fn format_wall_clock(time: NaiveTime) -> String {
 
 #[derive(Deserialize, Default)]
 struct UpdateCharacterSettingsRequest {
-    #[serde(default)]
-    dnd_start: Option<NullableField>,
-    #[serde(default)]
-    dnd_end: Option<NullableField>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    dnd_start: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_patch_string")]
+    dnd_end: Option<Option<String>>,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum NullableField {
-    Null,
-    Value(String),
+/// 字段缺失 → `None`（不更新）；JSON `null` → `Some(None)`（清空）；字符串 → `Some(Some(_))`（设置）。
+fn deserialize_patch_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<Option<String>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("null or HH:MM string")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E> {
+            Ok(Some(None))
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(Some(None))
+        }
+
+        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+            Ok(Some(Some(value.to_owned())))
+        }
+
+        fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+            Ok(Some(Some(value)))
+        }
+    }
+
+    deserializer.deserialize_any(Visitor)
 }
 
-impl UpdateCharacterSettingsRequest {
-    fn into_input(self) -> Result<UpdateCharacterSettingsInput, crate::error::AppError> {
-        Ok(UpdateCharacterSettingsInput {
-            dnd_start: map_nullable_field(self.dnd_start)?,
-            dnd_end: map_nullable_field(self.dnd_end)?,
-        })
+impl Validate for UpdateCharacterSettingsRequest {
+    fn validate(&self) -> Result<(), validator::ValidationErrors> {
+        let mut errors = validator::ValidationErrors::new();
+        for (field, value) in [("dnd_start", &self.dnd_start), ("dnd_end", &self.dnd_end)] {
+            if let Some(Some(time)) = value {
+                if parse_wall_clock(time).is_err() {
+                    errors.add(field, validator::ValidationError::new("invalid_wall_clock"));
+                }
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
-fn map_nullable_field(
-    field: Option<NullableField>,
-) -> Result<PatchField<NaiveTime>, crate::error::AppError> {
+impl From<UpdateCharacterSettingsRequest> for UpdateCharacterSettingsInput {
+    fn from(body: UpdateCharacterSettingsRequest) -> Self {
+        Self {
+            dnd_start: map_patch_field(body.dnd_start),
+            dnd_end: map_patch_field(body.dnd_end),
+        }
+    }
+}
+
+fn map_patch_field(field: Option<Option<String>>) -> PatchField<NaiveTime> {
     match field {
-        None => Ok(PatchField::Unset),
-        Some(NullableField::Null) => Ok(PatchField::Clear),
-        Some(NullableField::Value(value)) => Ok(PatchField::Set(parse_wall_clock(&value)?)),
+        None => PatchField::Unset,
+        Some(None) => PatchField::Clear,
+        Some(Some(value)) => PatchField::Set(
+            parse_wall_clock(&value).expect("validated before domain mapping"),
+        ),
     }
 }
 
@@ -161,13 +209,13 @@ async fn update_settings(
     State(state): State<Arc<AppState>>,
     AuthUser(user): AuthUser,
     Path(character_id): Path<String>,
-    axum::Json(body): axum::Json<UpdateCharacterSettingsRequest>,
+    ValidatedJson(body): ValidatedJson<UpdateCharacterSettingsRequest>,
 ) -> ApiResult<CharacterSettingsResponse> {
     let settings = character_settings::update_for_user(
         &state.db,
         &user.id,
         &character_id,
-        body.into_input()?,
+        body.into(),
     )
     .await?;
     Ok(ApiResponse::ok(settings.into()))

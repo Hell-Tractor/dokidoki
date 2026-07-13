@@ -15,7 +15,15 @@ pub fn api() -> Router<Arc<AppState>> {
 
 #[derive(Deserialize, Validate)]
 struct QueueLlmRequest {
+    #[validate(length(min = 1, max = 50), custom(function = "validate_llm_responses"))]
     responses: Vec<String>,
+}
+
+fn validate_llm_responses(responses: &[String]) -> Result<(), validator::ValidationError> {
+    if responses.iter().any(|response| response.is_empty() || response.len() > 10_000) {
+        return Err(validator::ValidationError::new("invalid_llm_response_item"));
+    }
+    Ok(())
 }
 
 async fn queue_llm_responses(
