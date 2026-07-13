@@ -31,14 +31,31 @@ class ChatNotifier extends AsyncNotifier<ChatState> {
 
     _wsSubscription?.cancel();
     _wsSubscription = ws.events.listen((event) {
-      if (event.type != 'message') {
-        return;
+      switch (event.type) {
+        case 'message':
+          final conversationId = event.payload['conversation_id'] as String?;
+          if (conversationId != context.conversationId) {
+            return;
+          }
+          _appendMessage(ChatMessage.fromWsPayload(event.payload));
+        case 'character_typing':
+          final conversationId = event.payload['conversation_id'] as String?;
+          if (conversationId != context.conversationId) {
+            return;
+          }
+          _setCharacterTyping(event.payload['active'] as bool? ?? false);
+        case 'turn_cancelled':
+          final conversationId = event.payload['conversation_id'] as String?;
+          if (conversationId != context.conversationId) {
+            return;
+          }
+          final turnId = event.payload['turn_id'] as String?;
+          if (turnId != null) {
+            _removeCharacterMessagesForTurn(turnId);
+          }
+        default:
+          break;
       }
-      final conversationId = event.payload['conversation_id'] as String?;
-      if (conversationId != context.conversationId) {
-        return;
-      }
-      _appendMessage(ChatMessage.fromWsPayload(event.payload));
     });
     ref.onDispose(() => _wsSubscription?.cancel());
 
@@ -174,5 +191,30 @@ class ChatNotifier extends AsyncNotifier<ChatState> {
     state = AsyncData(
       current.copyWith(messages: [...current.messages, message]),
     );
+  }
+
+  void _setCharacterTyping(bool active) {
+    final current = state.value;
+    if (current == null) {
+      return;
+    }
+    if (current.isCharacterTyping == active) {
+      return;
+    }
+    state = AsyncData(current.copyWith(isCharacterTyping: active));
+  }
+
+  void _removeCharacterMessagesForTurn(String turnId) {
+    final current = state.value;
+    if (current == null) {
+      return;
+    }
+    final filtered = current.messages
+        .where((m) => !(m.isCharacter && m.turnId == turnId))
+        .toList();
+    if (filtered.length == current.messages.length) {
+      return;
+    }
+    state = AsyncData(current.copyWith(messages: filtered));
   }
 }

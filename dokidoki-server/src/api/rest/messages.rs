@@ -192,20 +192,10 @@ async fn create_message(
     Path(conversation_id): Path<String>,
     ValidatedJson(body): ValidatedJson<CreateMessageRequest>,
 ) -> ApiResult<CreateMessageResponse> {
-    let message = messages::send_user_text(
-        &state.db,
-        &user.id,
-        &conversation_id,
-        body.content,
-    )
-    .await?;
-
-    state.chat.on_user_text_sent(
-        &user.id,
-        &conversation_id,
-        &message.turn_id,
-        &message.id,
-    );
+    let message = state
+        .chat
+        .ingest_user_text(&user.id, &conversation_id, body.content)
+        .await?;
 
     Ok(ApiResponse::accepted(message.into()))
 }

@@ -129,15 +129,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   )
                 : null;
 
-            return Row(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                CharacterAvatar(
-                  name: characterName,
-                  imageUrl: avatarUrl,
-                  radius: 16,
+                Row(
+                  children: [
+                    CharacterAvatar(
+                      name: characterName,
+                      imageUrl: avatarUrl,
+                      radius: 16,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(characterName),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Text(characterName),
+                if (chat.isCharacterTyping)
+                  Text(
+                    '对方正在输入…',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
               ],
             );
           },

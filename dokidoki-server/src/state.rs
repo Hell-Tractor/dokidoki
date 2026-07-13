@@ -32,7 +32,12 @@ impl AppState {
 
         let llm = Arc::new(LlmClient::from_config(&config.llm));
         let ws_hub = Arc::new(WsHub::new());
-        let chat = Arc::new(ChatService::new(db.clone(), llm.clone(), ws_hub.clone()));
+        let chat = Arc::new(ChatService::new(
+            db.clone(),
+            llm.clone(),
+            ws_hub.clone(),
+            config.chat.clone(),
+        ));
         Self {
             config,
             db,

@@ -68,7 +68,7 @@ async fn user_message_triggers_fake_llm_character_reply() {
     )
     .await;
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let (status, body) = get_with_auth(
         &mut app,
@@ -107,7 +107,7 @@ async fn fake_llm_splits_multiple_bubbles() {
     )
     .await;
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let (_, body) = get_with_auth(
         &mut app,
@@ -223,7 +223,7 @@ async fn no_reply_produces_no_character_message() {
     )
     .await;
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let (_, body) = get_with_auth(
         &mut app,
@@ -258,7 +258,7 @@ async fn end_topic_sets_winding_down_status() {
     )
     .await;
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let status: String = sqlx::query_scalar("SELECT status FROM conversations WHERE id = ?")
         .bind(&conversation_id)
@@ -300,7 +300,7 @@ async fn farewell_in_winding_down_moves_to_paused() {
     )
     .await;
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let status: String = sqlx::query_scalar("SELECT status FROM conversations WHERE id = ?")
         .bind(&conversation_id)

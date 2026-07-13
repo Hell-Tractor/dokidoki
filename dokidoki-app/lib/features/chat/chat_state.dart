@@ -36,6 +36,7 @@ class ChatState {
     required this.hasMore,
     this.loadingMore = false,
     this.sending = false,
+    this.isCharacterTyping = false,
     this.characterId,
     this.characterName,
   });
@@ -44,6 +45,7 @@ class ChatState {
   final bool hasMore;
   final bool loadingMore;
   final bool sending;
+  final bool isCharacterTyping;
   final String? characterId;
   final String? characterName;
 
@@ -52,6 +54,7 @@ class ChatState {
     bool? hasMore,
     bool? loadingMore,
     bool? sending,
+    bool? isCharacterTyping,
     String? characterId,
     String? characterName,
   }) {
@@ -60,6 +63,7 @@ class ChatState {
       hasMore: hasMore ?? this.hasMore,
       loadingMore: loadingMore ?? this.loadingMore,
       sending: sending ?? this.sending,
+      isCharacterTyping: isCharacterTyping ?? this.isCharacterTyping,
       characterId: characterId ?? this.characterId,
       characterName: characterName ?? this.characterName,
     );

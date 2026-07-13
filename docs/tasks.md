@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：**M-14 选择性回复**已完成 → 下一步 M-13 Burst / 部署。
+> **当前里程碑**：**M-13 Burst Chat**（进行中）→ 图片消息（M-04）降至 P1。
 
 ---
 
@@ -78,7 +78,8 @@
 - [x] WS：`connected` / `subscribe` / `ping` / `pong`
 - [x] WS 推送：`message`（角色回复）
 - [x] 集成测试：`tests/chat_api.rs`（DB + WS）
-- [ ] _暂不做_：burst、回复延迟、typing、`send_message` WS 发送
+- [x] burst / delivery / reply_scheduler（`chat/burst.rs` 等）
+- [ ] _暂不做_：`send_message` WS 发送
 
 ### M-08 按角色设置（P0，已完成）
 
@@ -89,7 +90,8 @@
 ### WebSocket（P0，扩展）
 
 - [ ] 客户端 → `send_message`（与 REST 二选一，可后补）
-- [ ] 服务端 → `character_typing` / `message_read` / `turn_cancelled`
+- [x] 服务端 → `character_typing` / `turn_cancelled`
+- [ ] 服务端 → `message_read`
 - [ ] _不推送_ `conversation_status`（后端内部状态，前端无需感知）
 
 ### M-05 角色人设（P0）
@@ -116,11 +118,11 @@
 
 - [ ] 角色/日程数据维护方式（SQL 或脚本，MVP 无 App 内编辑）
 
-### M-13 Burst Chat（P1）
+### M-13 Burst Chat（P1，当前）
 
-- [ ] `chat/burst.rs`：静默窗口合并、turn 管理
-- [ ] `chat/delivery.rs`：多气泡分时投递
-- [ ] `chat/reply_scheduler.rs`：回复延迟队列
+- [x] `chat/burst.rs`：静默窗口合并、turn 管理
+- [x] `chat/delivery.rs`：多气泡分时投递
+- [x] `chat/reply_scheduler.rs`：首响延迟（config min/max）
 - [x] `chat/conversation_fsm.rs`：active / winding_down / paused
 
 ### M-14 选择性回复（P1，已完成）
@@ -222,11 +224,11 @@
 - [ ] 图片发送（相册/相机 + 可选 caption）
 - [ ] 图片气泡展示与全屏预览
 
-### M-13 Burst Chat 体验（P1）
+### M-13 Burst Chat 体验（P1，当前）
 
-- [ ] AppBar 副标题「对方正在输入…」（`character_typing`）
-- [ ] 多气泡逐条展示
-- [ ] `turn_cancelled` 移除未展示气泡
+- [x] AppBar 副标题「对方正在输入…」（`character_typing`）
+- [x] 多气泡逐条展示（服务端分时推送）
+- [x] `turn_cancelled` 移除未展示气泡
 - [ ] 纯 emoji 收发
 
 ### M-17 延迟已读（P1）

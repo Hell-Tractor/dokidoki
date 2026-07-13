@@ -104,7 +104,7 @@ pub struct Upload {
     pub allowed_types: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Chat {
     pub burst_silence_ms: u32,
     pub min_reply_delay_ms: u32,
