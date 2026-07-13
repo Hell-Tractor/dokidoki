@@ -20,6 +20,21 @@ pub async fn list_all(pool: &MySqlPool) -> Result<Vec<Character>, AppError> {
     Ok(characters)
 }
 
+pub async fn list_character_ids(pool: &MySqlPool) -> Result<Vec<String>, AppError> {
+    let ids = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT id
+        FROM characters
+        ORDER BY id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(ids)
+}
+
 pub async fn find_persona_json(
     pool: &MySqlPool,
     id: &str,
@@ -38,6 +53,26 @@ pub async fn find_persona_json(
     .flatten();
 
     Ok(persona)
+}
+
+pub async fn find_schedule_json(
+    pool: &MySqlPool,
+    id: &str,
+) -> Result<Option<serde_json::Value>, AppError> {
+    let schedule = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        r#"
+        SELECT schedule_json
+        FROM characters
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::from_db)?
+    .flatten();
+
+    Ok(schedule)
 }
 
 pub async fn find_by_id(pool: &MySqlPool, id: &str) -> Result<Option<Character>, AppError> {

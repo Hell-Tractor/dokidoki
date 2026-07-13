@@ -24,6 +24,14 @@ const T01_TEMPLATE: &str = r#"你是 {name}。这不是 AI 助手对话，而是
 【身份】
 你有自己的生活和日程。你不是 24 小时待命的服务者。回复要有人味、有情绪、有立场。"#;
 
+const T03_TEMPLATE: &str = r#"【当前状态】
+现在是 {weekday} {time}。你正在：{activity}。
+心情：{mood}。繁忙程度：{availability}（low=很忙/少看手机，medium=一般，high=空闲）。
+
+{random_event_block}
+
+回复时可以让用户感受到你「此刻在做什么」，但不要每条消息都重复提状态。自然就好。"#;
+
 const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
 
 你的每条回复必须以以下动作头之一开头，且一行内只能有一个动作头：
@@ -50,10 +58,21 @@ const T02_TEMPLATE: &str = r#"【输出格式 — 必须严格遵守】
 - medium：适当使用，用户「嗯」「哦」等可不回
 - high：较常使用，忙碌或不想聊时倾向不回"#;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CurrentStatePrompt {
+    pub weekday_zh: String,
+    pub time_hm: String,
+    pub activity: String,
+    pub mood: String,
+    pub availability: String,
+    pub random_event: Option<String>,
+}
+
 pub fn build_system_prompt(
     persona: &Value,
     character_name: &str,
     user_display_name: &str,
+    current_state: Option<&CurrentStatePrompt>,
 ) -> String {
     let name = persona
         .get("name")
@@ -94,7 +113,28 @@ pub fn build_system_prompt(
 
     let t02 = T02_TEMPLATE.replace("{skip_reply_tendency}", skip_reply_tendency);
 
-    format!("{t01}\n\n{t02}")
+    let mut parts = vec![t01, t02];
+    if let Some(state) = current_state {
+        parts.push(format_current_state_section(state));
+    }
+    parts.join("\n\n")
+}
+
+pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
+    let random_event_block = state
+        .random_event
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(|event| format!("【今日变故】{event}\n"))
+        .unwrap_or_default();
+
+    T03_TEMPLATE
+        .replace("{weekday}", &state.weekday_zh)
+        .replace("{time}", &state.time_hm)
+        .replace("{activity}", &state.activity)
+        .replace("{mood}", &state.mood)
+        .replace("{availability}", &state.availability)
+        .replace("{random_event_block}", random_event_block.trim_end())
 }
 
 fn nested_str(value: &Value, path: &[&str]) -> String {
@@ -139,7 +179,7 @@ mod tests {
             }
         });
 
-        let prompt = build_system_prompt(&persona, "默认名", "阿明");
+        let prompt = build_system_prompt(&persona, "默认名", "阿明", None);
 
         assert!(prompt.contains("你是 小爱"));
         assert!(prompt.contains("黏人、撒娇"));
@@ -150,9 +190,40 @@ mod tests {
 
     #[test]
     fn uses_fallbacks_for_empty_persona() {
-        let prompt = build_system_prompt(&json!({}), "小咲", "");
+        let prompt = build_system_prompt(&json!({}), "小咲", "", None);
 
         assert!(prompt.contains("你是 小咲"));
         assert!(prompt.contains("你称呼对方为「你」"));
+    }
+
+    #[test]
+    fn appends_t03_when_current_state_provided() {
+        let state = CurrentStatePrompt {
+            weekday_zh: "周一".into(),
+            time_hm: "10:00".into(),
+            activity: "工作".into(),
+            mood: "专注".into(),
+            availability: "low".into(),
+            random_event: Some("电脑坏了".into()),
+        };
+        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state));
+
+        assert!(prompt.contains("【当前状态】"));
+        assert!(prompt.contains("你正在：工作"));
+        assert!(prompt.contains("【今日变故】电脑坏了"));
+    }
+
+    #[test]
+    fn t03_omits_random_event_block_when_empty() {
+        let state = CurrentStatePrompt {
+            weekday_zh: "周二".into(),
+            time_hm: "08:00".into(),
+            activity: "早餐".into(),
+            mood: "元气".into(),
+            availability: "medium".into(),
+            random_event: None,
+        };
+        let section = format_current_state_section(&state);
+        assert!(!section.contains("【今日变故】"));
     }
 }

@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：M-08 按角色设置已完成 → 图片消息（M-04）降至 P1。
+> **当前里程碑**：**M-06 日程 + T-03 Prompt**（进行中）→ 图片消息（M-04）降至 P1。
 
 ---
 
@@ -46,7 +46,7 @@
 - [x] `POST /conversations`（幂等创建；破冰待 M-28）
 - [x] 角色种子数据（`seeds/dev_characters.sql`；开发手动执行，不进 migration）
 
-### 角色头像（P0，当前）
+### 角色头像（P0，已完成）
 
 - [x] 本地存储目录（`config.upload.dir`，`avatars/` 子目录）
 - [x] `GET /characters/{id}/avatar`（鉴权；读 `characters.avatar_path`；无文件时占位图）
@@ -95,12 +95,21 @@
 
 - [x] `persona` 模块：读取 `persona_json`、Prompt 静态层（MVP：T-01 + T-02）
 - [x] Prompt 模板拼接（`persona/prompt.rs`）
-- [ ] 完整 Prompt 组装（T-03～T-11 场景附加、CurrentState、记忆、摘要）
+- [x] T-03 当前状态注入（随 M-06）
+- [ ] 完整 Prompt 组装（T-04～T-11 场景附加、记忆、摘要）
 
-### M-06 日程与活动状态（P0）
+### M-06 日程与活动状态（P0，当前）
 
-- [ ] `schedule` 模块：周模板 + 随机事件
-- [ ] CurrentState 解析（活动、心情、繁忙程度）
+- [x] `schedule` 模块：周模板 + 随机事件解析
+- [x] CurrentState 解析（活动、心情、繁忙程度）
+- [x] 聊天时从 `character_states` 读取并注入 T-03
+- [x] 后台 `scheduler`：30～90s 随机间隔 tick
+
+### 用户头像（P2，暂缓）
+
+- [ ] `users.avatar_path` + 上传/GET 接口
+- [ ] Settings 选图上传
+- [ ] 聊天页用户气泡显示头像图
 
 ### M-09 人设/日程维护（P0，运维侧）
 

@@ -4,7 +4,8 @@ use crate::{
     db::queries::{characters, conversations, messages, users},
     error::AppError,
     llm::{ChatRequest, LlmMessage},
-    persona::build_system_prompt,
+    persona::{build_system_prompt, CurrentStatePrompt},
+    schedule,
 };
 
 const RECENT_MESSAGE_LIMIT: u32 = 20;
@@ -35,7 +36,26 @@ pub async fn build_chat_request(
         .await?
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let system = build_system_prompt(&persona_json, &character.name, &user.display_name);
+    let current_state = schedule::load_current_state_for_prompt(pool, &conversation.character_id)
+        .await
+        .inspect_err(|err| tracing::warn!("schedule state unavailable: {err}"))
+        .ok()
+        .flatten()
+        .map(|state| CurrentStatePrompt {
+            weekday_zh: state.weekday_zh,
+            time_hm: state.time_hm,
+            activity: state.activity,
+            mood: state.mood,
+            availability: state.availability,
+            random_event: state.random_event,
+        });
+
+    let system = build_system_prompt(
+        &persona_json,
+        &character.name,
+        &user.display_name,
+        current_state.as_ref(),
+    );
 
     let recent = messages::list_recent_text(pool, conversation_id, RECENT_MESSAGE_LIMIT).await?;
 

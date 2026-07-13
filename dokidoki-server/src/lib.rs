@@ -5,6 +5,7 @@ pub mod domain;
 pub mod error;
 pub mod llm;
 pub mod persona;
+pub mod schedule;
 pub mod state;
 pub mod time;
 pub mod upload;
@@ -20,6 +21,11 @@ pub async fn run() -> Result<()> {
     use std::sync::Arc;
 
     let shared_state = Arc::new(state::AppState::new().await?);
+
+    let scheduler_pool = shared_state.db.clone();
+    tokio::spawn(async move {
+        schedule::run_scheduler(scheduler_pool).await;
+    });
 
     let addr = format!(
         "{}:{}",
