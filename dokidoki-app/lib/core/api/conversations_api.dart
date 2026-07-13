@@ -1,4 +1,5 @@
 import '../models/character.dart';
+import '../models/character_settings.dart';
 import '../models/conversation.dart';
 import 'api_client.dart';
 
@@ -38,6 +39,34 @@ class CharactersApi {
       parser: (json) => (json as List<dynamic>)
           .map((item) => Character.fromJson(item as Map<String, dynamic>))
           .toList(),
+    );
+  }
+
+  Future<CharacterSettings> getCharacterSettings(String characterId) {
+    return _client.getData(
+      '/characters/$characterId/settings',
+      parser: (json) =>
+          CharacterSettings.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  Future<CharacterSettings> updateCharacterSettings(
+    String characterId, {
+    String? dndStart,
+    String? dndEnd,
+    bool clearDndStart = false,
+    bool clearDndEnd = false,
+  }) {
+    return _client.putData(
+      '/characters/$characterId/settings',
+      data: {
+        if (clearDndStart) 'dnd_start': null,
+        if (clearDndEnd) 'dnd_end': null,
+        if (!clearDndStart && dndStart != null) 'dnd_start': dndStart,
+        if (!clearDndEnd && dndEnd != null) 'dnd_end': dndEnd,
+      },
+      parser: (json) =>
+          CharacterSettings.fromJson(json as Map<String, dynamic>),
     );
   }
 }

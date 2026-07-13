@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：**按角色设置（M-08）** → 图片消息（M-04）降至 P1。
+> **当前里程碑**：M-08 按角色设置已完成 → 图片消息（M-04）降至 P1。
 
 ---
 
@@ -80,11 +80,11 @@
 - [x] 集成测试：`tests/chat_api.rs`（DB + WS）
 - [ ] _暂不做_：burst、回复延迟、typing、`send_message` WS 发送
 
-### M-08 按角色设置（P0，当前）
+### M-08 按角色设置（P0，已完成）
 
-- [ ] `GET /characters/{id}/settings`（勿扰时段等）
-- [ ] `PUT /characters/{id}/settings`（`dnd_start` / `dnd_end`，结合 `users.timezone`）
-- [ ] `user_character_settings` 查询与 upsert
+- [x] `GET /characters/{id}/settings`（勿扰时段等）
+- [x] `PUT /characters/{id}/settings`（`dnd_start` / `dnd_end`，结合 `users.timezone`）
+- [x] `user_character_settings` 查询与 upsert
 
 ### WebSocket（P0，扩展）
 
@@ -162,7 +162,7 @@
 
 ## 前端（dokidoki-app）
 
-> M-03 文本聊天 + Settings 已完成；**当前：角色头像 + 按角色设置**；图片发收降至 P1。
+> M-03 文本聊天 + Settings + 角色头像 + 按角色设置已完成；图片发收降至 P1。
 
 ### 项目骨架
 
@@ -220,10 +220,10 @@
 
 - [ ] 用户消息「已送达 → 已读」状态展示（`message_read`）
 
-### M-08 按角色设置（P0，当前）
+### M-08 按角色设置（P0，已完成）
 
-- [ ] P-06 CharacterSettingsPage：勿扰时段（`GET/PUT /characters/{id}/settings`）
-- [ ] ChatPage ⋮ 菜单入口
+- [x] P-06 CharacterSettingsPage：勿扰时段（`GET/PUT /characters/{id}/settings`）
+- [x] ChatPage ⋮ 菜单入口
 
 ### M-01 设置与连接（P0）
 

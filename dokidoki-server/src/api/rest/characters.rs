@@ -7,11 +7,18 @@ use axum::{
     routing::get,
     Router,
 };
-use serde::Serialize;
+use chrono::NaiveTime;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{extractors::AuthUser, response::ApiResponse, response::ApiResult},
-    domain::{avatar, characters},
+    domain::{
+        avatar,
+        character_settings::{
+            self, parse_wall_clock, CharacterSettings, PatchField, UpdateCharacterSettingsInput,
+        },
+        characters,
+    },
     db::models::Character,
     state::AppState,
 };
@@ -20,6 +27,10 @@ pub fn api() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_characters))
         .route("/{id}/avatar", get(get_avatar))
+        .route(
+            "/{id}/settings",
+            get(get_settings).put(update_settings),
+        )
 }
 
 #[derive(Serialize)]
@@ -36,6 +47,61 @@ impl From<Character> for CharacterResponse {
             id: character.id,
             name: character.name,
         }
+    }
+}
+
+#[derive(Serialize)]
+struct CharacterSettingsResponse {
+    dnd_start: Option<String>,
+    dnd_end: Option<String>,
+    push_muted: bool,
+}
+
+impl From<CharacterSettings> for CharacterSettingsResponse {
+    fn from(settings: CharacterSettings) -> Self {
+        Self {
+            dnd_start: settings.dnd_start.map(format_wall_clock),
+            dnd_end: settings.dnd_end.map(format_wall_clock),
+            push_muted: settings.push_muted,
+        }
+    }
+}
+
+fn format_wall_clock(time: NaiveTime) -> String {
+    time.format("%H:%M").to_string()
+}
+
+#[derive(Deserialize, Default)]
+struct UpdateCharacterSettingsRequest {
+    #[serde(default)]
+    dnd_start: Option<NullableField>,
+    #[serde(default)]
+    dnd_end: Option<NullableField>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NullableField {
+    Null,
+    Value(String),
+}
+
+impl UpdateCharacterSettingsRequest {
+    fn into_input(self) -> Result<UpdateCharacterSettingsInput, crate::error::AppError> {
+        Ok(UpdateCharacterSettingsInput {
+            dnd_start: map_nullable_field(self.dnd_start)?,
+            dnd_end: map_nullable_field(self.dnd_end)?,
+        })
+    }
+}
+
+fn map_nullable_field(
+    field: Option<NullableField>,
+) -> Result<PatchField<NaiveTime>, crate::error::AppError> {
+    match field {
+        None => Ok(PatchField::Unset),
+        Some(NullableField::Null) => Ok(PatchField::Clear),
+        Some(NullableField::Value(value)) => Ok(PatchField::Set(parse_wall_clock(&value)?)),
     }
 }
 
@@ -79,4 +145,30 @@ async fn get_avatar(
         content_type: image.content_type,
         bytes: image.bytes,
     })
+}
+
+async fn get_settings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(character_id): Path<String>,
+) -> ApiResult<CharacterSettingsResponse> {
+    let settings =
+        character_settings::get_for_user(&state.db, &user.id, &character_id).await?;
+    Ok(ApiResponse::ok(settings.into()))
+}
+
+async fn update_settings(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user): AuthUser,
+    Path(character_id): Path<String>,
+    axum::Json(body): axum::Json<UpdateCharacterSettingsRequest>,
+) -> ApiResult<CharacterSettingsResponse> {
+    let settings = character_settings::update_for_user(
+        &state.db,
+        &user.id,
+        &character_id,
+        body.into_input()?,
+    )
+    .await?;
+    Ok(ApiResponse::ok(settings.into()))
 }

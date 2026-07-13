@@ -35,6 +35,13 @@ impl From<UserCredentials> for User {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserCharacterSettings {
+    pub dnd_start: Option<chrono::NaiveTime>,
+    pub dnd_end: Option<chrono::NaiveTime>,
+    pub push_muted: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Character {
     pub id: String,
     pub name: String,

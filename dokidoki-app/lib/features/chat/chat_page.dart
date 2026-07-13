@@ -7,6 +7,7 @@ import '../../core/auth/providers.dart';
 import '../../core/models/conversation.dart';
 import '../../core/utils/url_utils.dart';
 import '../../shared/widgets/character_avatar.dart';
+import '../settings/character_settings_args.dart';
 import 'chat_state.dart';
 import 'providers.dart';
 import 'widgets/chat_input_bar.dart';
@@ -145,8 +146,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.more_vert),
-            onPressed: () =>
-                context.push('/chat/${widget.conversationId}/settings'),
+            onPressed: () {
+              final chat = ref.read(chatProvider(_chatContext)).value;
+              final characterId =
+                  chat?.characterId ?? widget.conversation?.characterId;
+              final characterName = chat?.characterName ??
+                  widget.conversation?.characterName ??
+                  '角色';
+              if (characterId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('无法获取角色信息')),
+                );
+                return;
+              }
+              context.push(
+                '/chat/${widget.conversationId}/settings',
+                extra: CharacterSettingsArgs(
+                  characterId: characterId,
+                  characterName: characterName,
+                ),
+              );
+            },
           ),
         ],
       ),

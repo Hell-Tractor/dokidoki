@@ -7,6 +7,7 @@ import '../core/auth/providers.dart';
 import '../core/models/conversation.dart';
 import '../features/chat/chat_page.dart';
 import '../features/home/home_page.dart';
+import '../features/settings/character_settings_args.dart';
 import '../features/settings/character_settings_page.dart';
 import '../features/settings/settings_page.dart';
 import '../features/setup/setup_page.dart';
@@ -71,9 +72,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: 'settings',
-            builder: (context, state) => CharacterSettingsPage(
-              conversationId: state.pathParameters['conversationId']!,
-            ),
+            builder: (context, state) {
+              final args = state.extra as CharacterSettingsArgs?;
+              if (args == null) {
+                return const Scaffold(
+                  body: Center(child: Text('缺少角色信息')),
+                );
+              }
+              return CharacterSettingsPage(args: args);
+            },
           ),
         ],
       ),
