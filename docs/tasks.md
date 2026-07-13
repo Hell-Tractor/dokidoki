@@ -4,7 +4,7 @@
 
 > **维护约定**：每次代码变更完成后，同步更新本文件（勾选已完成项、调整里程碑与「暂不做」说明）。
 >
-> **当前里程碑**：**M-28 初识破冰**（进行中）→ 图片消息（M-04）降至 P1。
+> **当前里程碑**：**M-14 选择性回复**已完成 → 下一步 M-13 Burst / 部署。
 
 ---
 
@@ -89,7 +89,8 @@
 ### WebSocket（P0，扩展）
 
 - [ ] 客户端 → `send_message`（与 REST 二选一，可后补）
-- [ ] 服务端 → `character_typing` / `message_read` / `turn_cancelled` / `conversation_status`
+- [ ] 服务端 → `character_typing` / `message_read` / `turn_cancelled`
+- [ ] _不推送_ `conversation_status`（后端内部状态，前端无需感知）
 
 ### M-05 角色人设（P0）
 
@@ -120,12 +121,13 @@
 - [ ] `chat/burst.rs`：静默窗口合并、turn 管理
 - [ ] `chat/delivery.rs`：多气泡分时投递
 - [ ] `chat/reply_scheduler.rs`：回复延迟队列
-- [ ] `chat/conversation_fsm.rs`：active / winding_down / paused
+- [x] `chat/conversation_fsm.rs`：active / winding_down / paused
 
-### M-14 选择性回复（P1）
+### M-14 选择性回复（P1，已完成）
 
-- [ ] `NO_REPLY` / `END_TOPIC` 动作处理
-- [ ] 会话 `paused` 与恢复
+- [x] `NO_REPLY` / `END_TOPIC` / `[REPLY]` 动作解析
+- [x] LLM `[END_TOPIC]` → `winding_down`；`[NO_REPLY]` → 无气泡
+- [x] 用户告别 / substantive 消息驱动 paused ↔ active
 
 ### M-15 忙碌时回复延迟（P1）
 
@@ -145,7 +147,7 @@
 
 - [ ] 超阈值触发摘要（默认 30 轮触发，保留 10 轮原文）
 
-### M-28 初识破冰（P1，当前）
+### M-28 初识破冰（P1，已完成）
 
 - [x] 首次 `POST /conversations` 触发破冰（1–3 条，不计入主动上限）
 - [x] T-19 Prompt + 异步 LLM 生成

@@ -203,6 +203,114 @@ async fn ws_receives_character_reply_after_subscribe() {
 }
 
 #[tokio::test]
+async fn no_reply_produces_no_character_message() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[NO_REPLY]"] }),
+    )
+    .await;
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "嗯" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(200)).await;
+
+    let (_, body) = get_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+    )
+    .await;
+
+    let messages = body["data"]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+}
+
+#[tokio::test]
+async fn end_topic_sets_winding_down_status() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    post_json(
+        &mut app,
+        "/api/v1/dev/llm/queue",
+        json!({ "responses": ["[END_TOPIC]我先去上课了|||等下聊"] }),
+    )
+    .await;
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "在吗" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(200)).await;
+
+    let status: String = sqlx::query_scalar("SELECT status FROM conversations WHERE id = ?")
+        .bind(&conversation_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "winding_down");
+
+    let (_, body) = get_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+    )
+    .await;
+
+    let messages = body["data"]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[1]["content"], "我先去上课了");
+    assert_eq!(messages[2]["content"], "等下聊");
+}
+
+#[tokio::test]
+async fn farewell_in_winding_down_moves_to_paused() {
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+    let conversation_id = create_test_conversation(&mut app, &token).await;
+
+    sqlx::query("UPDATE conversations SET status = 'winding_down' WHERE id = ?")
+        .bind(&conversation_id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    post_json_with_auth(
+        &mut app,
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        &token,
+        json!({ "content": "拜拜" }),
+    )
+    .await;
+
+    sleep(Duration::from_millis(200)).await;
+
+    let status: String = sqlx::query_scalar("SELECT status FROM conversations WHERE id = ?")
+        .bind(&conversation_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "paused");
+}
+
+#[tokio::test]
 async fn dev_llm_queue_empty_responses_returns_400() {
     let mut app = setup_app().await;
 

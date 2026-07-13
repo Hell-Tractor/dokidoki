@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use serde_json::Value;
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
 use crate::{
-    db::queries::{conversations as conversation_queries, messages as message_queries},
+    db::queries::{characters, conversations as conversation_queries, messages as message_queries},
     db::message::Message,
     error::AppError,
     llm::LlmClient,
@@ -14,7 +15,13 @@ use crate::{
 };
 
 mod context;
+pub mod conversation_fsm;
 pub mod parser;
+
+use conversation_fsm::{
+    on_user_message, status_after_llm_action, ConversationStatus, UserMessageDecision,
+};
+use parser::{parse_action, LlmAction};
 
 pub struct ChatService {
     db: MySqlPool,
@@ -123,11 +130,58 @@ impl ChatService {
         turn_id: &str,
         user_message_id: &str,
     ) -> Result<(), AppError> {
+        let conversation = conversation_queries::find_by_id(&self.db, conversation_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("会话不存在"))?;
+
+        if conversation.user_id != user_id {
+            return Err(AppError::not_found("会话不存在"));
+        }
+
+        let user_message =
+            message_queries::find_by_id_in_conversation(&self.db, conversation_id, user_message_id)
+                .await?
+                .ok_or_else(|| AppError::not_found("消息不存在"))?;
+
+        let user_content = user_message.content.unwrap_or_default();
+        let persona_json = characters::find_persona_json(&self.db, &conversation.character_id)
+            .await?
+            .unwrap_or_else(|| Value::Object(Default::default()));
+        let proactive_tendency = proactive_tendency(&persona_json);
+
+        let current_status = ConversationStatus::parse(&conversation.status)
+            .unwrap_or(ConversationStatus::Active);
+
+        match on_user_message(current_status, &user_content, proactive_tendency) {
+            UserMessageDecision::PauseWithoutReply => {
+                self.update_conversation_status(conversation_id, ConversationStatus::Paused)
+                    .await?;
+                return Ok(());
+            }
+            UserMessageDecision::IgnoreWhilePaused => return Ok(()),
+            UserMessageDecision::CallLlm { status } => {
+                if let Some(status) = status {
+                    self.update_conversation_status(conversation_id, status)
+                        .await?;
+                }
+            }
+        }
+
         let request =
             context::build_chat_request(&self.db, user_id, conversation_id, turn_id).await?;
         let raw = self.llm.chat(request).await?;
+        let action = parse_action(&raw);
 
-        let bubbles = parser::parse_reply(&raw);
+        if let Some(status) = status_after_llm_action(action.clone()) {
+            self.update_conversation_status(conversation_id, status)
+                .await?;
+        }
+
+        let bubbles = match action {
+            LlmAction::NoReply => return Ok(()),
+            LlmAction::Reply(bubbles) | LlmAction::EndTopic(bubbles) => bubbles,
+        };
+
         if bubbles.is_empty() {
             return Ok(());
         }
@@ -138,6 +192,21 @@ impl ChatService {
             turn_id,
             Some(user_message_id),
             bubbles,
+        )
+        .await
+    }
+
+    async fn update_conversation_status(
+        &self,
+        conversation_id: &str,
+        status: ConversationStatus,
+    ) -> Result<(), AppError> {
+        let set_paused_at = status == ConversationStatus::Paused;
+        conversation_queries::update_status(
+            &self.db,
+            conversation_id,
+            status.as_str(),
+            set_paused_at,
         )
         .await
     }
@@ -171,4 +240,12 @@ impl ChatService {
 
         Ok(())
     }
+}
+
+fn proactive_tendency(persona: &Value) -> &str {
+    persona
+        .get("conversation_behavior")
+        .and_then(|value| value.get("proactive_tendency"))
+        .and_then(Value::as_str)
+        .unwrap_or("normal")
 }

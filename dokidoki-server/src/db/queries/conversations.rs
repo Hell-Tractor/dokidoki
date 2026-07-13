@@ -157,3 +157,40 @@ pub async fn rollback_icebreaker(pool: &MySqlPool, conversation_id: &str) -> Res
 
     Ok(())
 }
+
+pub async fn update_status(
+    pool: &MySqlPool,
+    conversation_id: &str,
+    status: &str,
+    set_paused_at: bool,
+) -> Result<(), AppError> {
+    if set_paused_at {
+        sqlx::query(
+            r#"
+            UPDATE conversations
+            SET status = ?, paused_at = UTC_TIMESTAMP(6)
+            WHERE id = ?
+            "#,
+        )
+        .bind(status)
+        .bind(conversation_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::from_db)?;
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE conversations
+            SET status = ?, paused_at = NULL
+            WHERE id = ?
+            "#,
+        )
+        .bind(status)
+        .bind(conversation_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::from_db)?;
+    }
+
+    Ok(())
+}
