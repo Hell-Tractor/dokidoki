@@ -68,7 +68,7 @@ T-01 角色核心
 **User 消息** = 历史层 + 本轮用户输入：
 
 ```
-[可选] 近期消息（role/content 交替，最近 10 轮）
+[可选] 近期消息（role/content 交替，最近 keep_recent_turns 轮，见 config.toml）
 [本轮] 用户连发合并文本，或图片+caption
 ```
 

@@ -31,8 +31,9 @@ bubble_delay_base_ms = 400
 bubble_delay_per_char_ms = 50
 
 [summary]
-trigger_turns = 30
-keep_recent_turns = 10
+trigger_turns = 80
+keep_recent_turns = 40
+max_summary_chars = 800
 
 [push]
 fcm_credentials_path = "/secrets/fcm.json"   # 可选

@@ -57,8 +57,9 @@ impl Config {
                 bubble_delay_per_char_ms: 1,
             },
             summary: Summary {
-                trigger_turns: 1,
-                keep_recent_turns: 1,
+                trigger_turns: 80,
+                keep_recent_turns: 40,
+                max_summary_chars: 800,
             },
             push: Push {
                 fcm_credentials_path: "/tmp/fcm.json".into(),
@@ -117,6 +118,7 @@ pub struct Chat {
 pub struct Summary {
     pub trigger_turns: u32,
     pub keep_recent_turns: u32,
+    pub max_summary_chars: u32,
 }
 
 #[derive(Deserialize)]

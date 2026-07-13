@@ -148,7 +148,13 @@
 
 ### M-27 长会话摘要（P1）
 
-- [ ] 超阈值触发摘要（默认 30 轮触发，保留 10 轮原文）
+- [ ] `summary/maybe_compact`：超阈值异步触发、conversation 锁
+- [ ] turn 计数与窗口切分（按 `turn_id`，非 message 条数）
+- [ ] T-20 摘要 LLM 调用 + 增量合并
+- [ ] `conversations.summary` + `summary_covers_until` 持久化
+- [ ] `context.rs`：T-05 注入 + 按 turn 取历史
+- [ ] 默认 `trigger_turns=80`、`keep_recent_turns=40`
+- [ ] 单元测试：触发边界、增量合并、失败回退
 
 ### M-28 初识破冰（P1，已完成）
 
