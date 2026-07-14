@@ -22,8 +22,10 @@ use crate::{
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
 pub use triggers::{DailyGreetingExtras, TriggerContext, TriggerType};
 
-/// 与 schedule refresh 同循环调用：遍历会话对，闸门通过且触发命中则生成并投递。
+/// 与 schedule refresh 同循环调用：超时落地 winding_down，再遍历会话投递主动消息。
 pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
+    settle_winding_down_timeouts(&chat).await?;
+
     let candidates = conversation_queries::list_proactive_candidates(&chat.db).await?;
     tracing::debug!(candidates = candidates.len(), "proactive tick begin");
 
@@ -55,6 +57,24 @@ pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
     Ok(())
 }
 
+async fn settle_winding_down_timeouts(chat: &Arc<ChatService>) -> Result<(), AppError> {
+    let timeout = chrono::Duration::seconds(chat.chat_config.winding_down_timeout_secs as i64);
+    let older_than = Utc::now() - timeout;
+    let rows = conversation_queries::list_winding_down_timed_out(&chat.db, older_than).await?;
+    for (id, reason) in rows {
+        let reason = reason.unwrap_or(crate::domain::WindingReason::Normal);
+        let terminal = reason.terminal_status();
+        conversation_queries::enter_terminal_pause(&chat.db, &id, terminal).await?;
+        tracing::info!(
+            conversation_id = %id,
+            status = %terminal,
+            winding_reason = %reason,
+            "winding_down timed out; entered terminal pause"
+        );
+    }
+    Ok(())
+}
+
 /// 返回是否成功投递一条主动消息。
 async fn process_candidate(
     chat: &Arc<ChatService>,
@@ -65,6 +85,20 @@ async fn process_candidate(
     let conversation_id = candidate.id.as_str();
     let user_id = candidate.user_id.as_str();
     let character_id = candidate.character_id.as_str();
+
+    if candidate.status == crate::domain::ConversationStatus::WindingDown {
+        tracing::trace!(conversation_id, "proactive skipped: winding_down");
+        return Ok(false);
+    }
+
+    if is_in_sleep_slot(chat, character_id, now).await? {
+        tracing::debug!(
+            conversation_id,
+            character_id,
+            "proactive skipped: kind=sleep slot"
+        );
+        return Ok(false);
+    }
 
     if is_blocked_by_dnd(
         now,
@@ -106,56 +140,89 @@ async fn process_candidate(
         return Ok(false);
     }
 
-    let availability = candidate.availability.as_deref().unwrap_or("medium");
+    let availability = candidate.availability.unwrap_or(crate::domain::Availability::Medium);
     let (daily_greeting_eligible, greeting_extras) =
         evaluate_daily_greeting(chat, candidate, now).await?;
 
     let persona = characters::find_persona(&chat.db, character_id)
         .await?
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
-    let re_engage_eligible = evaluate_re_engage(
+
+    let (re_engage_eligible, user_busy_curve_p) =
+        evaluate_re_engage(candidate, now, &persona.proactive.user_busy_reengage);
+    let silence_wake_eligible = evaluate_silence_wake(
         candidate,
         now,
         availability,
-        persona.conversation_behavior.re_engage_after_minutes,
+        persona.proactive.silence_after_hours,
     );
 
     let trigger = triggers::select_trigger(&TriggerContext {
         conversation_id,
-        status: &candidate.status,
+        status: candidate.status,
         availability,
         daily_greeting_eligible,
         re_engage_eligible,
+        silence_wake_eligible,
     });
     let Some(trigger) = trigger else {
         tracing::trace!(
             conversation_id,
             status = %candidate.status,
-            availability,
+            availability = %availability,
             daily_greeting_eligible,
             re_engage_eligible,
+            silence_wake_eligible,
             "proactive skipped: no trigger matched"
         );
         return Ok(false);
     };
 
     let probability_factor = persona.proactive.probability_factor;
-    if !passes_probability_gate(
-        &chat.proactive_config,
-        availability,
-        probability_factor,
-        rng,
-    ) {
-        tracing::debug!(
-            conversation_id,
-            user_id,
-            character_id,
-            trigger = trigger.as_str(),
-            availability,
-            probability_factor,
-            base = chat.proactive_config.base_probability(availability),
-            "proactive skipped: probability gate"
-        );
+    let base = chat.proactive_config.base_probability(availability);
+    let pass_probability = match (trigger, user_busy_curve_p) {
+        (TriggerType::ReEngage, Some(curve_p)) => {
+            // paused_user_busy：P(t) × 全局/availability 闸门
+            let final_p = (curve_p * base * probability_factor).clamp(0.0, 1.0);
+            let roll = rng.next_unit();
+            let ok = roll < final_p;
+            if !ok {
+                tracing::debug!(
+                    conversation_id,
+                    curve_p,
+                    base,
+                    probability_factor,
+                    final_p,
+                    roll,
+                    "proactive skipped: user_busy re_engage curve"
+                );
+            }
+            ok
+        }
+        _ => {
+            if !passes_probability_gate(
+                &chat.proactive_config,
+                availability,
+                probability_factor,
+                rng,
+            ) {
+                tracing::debug!(
+                    conversation_id,
+                    user_id,
+                    character_id,
+                    trigger = trigger.as_str(),
+                    availability = %availability,
+                    probability_factor,
+                    base,
+                    "proactive skipped: probability gate"
+                );
+                false
+            } else {
+                true
+            }
+        }
+    };
+    if !pass_probability {
         return Ok(false);
     }
 
@@ -164,14 +231,13 @@ async fn process_candidate(
         user_id,
         character_id,
         trigger = trigger.as_str(),
-        availability,
+        availability = %availability,
         "proactive attempting deliver"
     );
 
     let delivered =
         generate_and_deliver(chat, candidate, trigger, &greeting_extras).await?;
     if !delivered {
-        // 失败细节已在 generate_and_deliver 内 warn
         return Ok(false);
     }
 
@@ -188,7 +254,7 @@ async fn process_candidate(
     character_states::touch_last_proactive_at(&chat.db, character_id, Utc::now()).await?;
 
     if trigger == TriggerType::ReEngage {
-        conversation_queries::update_status(&chat.db, conversation_id, "active", false).await?;
+        conversation_queries::enter_active(&chat.db, conversation_id).await?;
         tracing::info!(
             conversation_id,
             "proactive re_engage: conversation status set to active"
@@ -205,6 +271,20 @@ async fn process_candidate(
     );
 
     Ok(true)
+}
+
+async fn is_in_sleep_slot(
+    chat: &Arc<ChatService>,
+    character_id: &str,
+    now: chrono::DateTime<Utc>,
+) -> Result<bool, AppError> {
+    let Some(raw) = characters::find_schedule_json(&chat.db, character_id).await? else {
+        return Ok(false);
+    };
+    let Some(schedule) = schedule::Schedule::try_from_json_value(raw)? else {
+        return Ok(false);
+    };
+    Ok(schedule::current_slot_kind(&schedule, now)? == Some(schedule::SlotKind::Sleep))
 }
 
 async fn evaluate_daily_greeting(
@@ -309,31 +389,63 @@ async fn evaluate_daily_greeting(
 fn evaluate_re_engage(
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
-    availability: &str,
-    after_minutes: u32,
-) -> bool {
-    let eligible = triggers::is_re_engage_eligible(
-        &candidate.status,
+    user_busy_curve: &crate::domain::persona::UserBusyReengage,
+) -> (bool, Option<f64>) {
+    if triggers::is_char_busy_re_engage_ready(
+        candidate.status,
+        candidate.activity_ends_at,
+        now,
+    ) {
+        tracing::debug!(
+            conversation_id = %candidate.id,
+            activity_ends_at = ?candidate.activity_ends_at,
+            "re_engage eligible: paused_char_busy after activity end"
+        );
+        return (true, None);
+    }
+
+    if let Some(curve_p) = triggers::user_busy_re_engage_probability(
+        candidate.status,
         candidate.paused_at,
         now,
-        after_minutes,
+        user_busy_curve,
+    ) {
+        if curve_p > 0.0 {
+            tracing::debug!(
+                conversation_id = %candidate.id,
+                curve_p,
+                "re_engage eligible: paused_user_busy curve"
+            );
+            return (true, Some(curve_p));
+        }
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            "re_engage: paused_user_busy still in min_delay"
+        );
+    }
+    (false, None)
+}
+
+fn evaluate_silence_wake(
+    candidate: &conversation_queries::ProactiveCandidateRow,
+    now: chrono::DateTime<Utc>,
+    availability: crate::domain::Availability,
+    silence_after_hours: f64,
+) -> bool {
+    let eligible = triggers::is_silence_wake_eligible(
+        candidate.status,
+        candidate.last_user_message_at,
+        now,
+        silence_after_hours,
         availability,
     );
     if eligible {
         tracing::debug!(
             conversation_id = %candidate.id,
-            paused_at = ?candidate.paused_at,
-            after_minutes,
-            availability,
-            "re_engage eligible"
-        );
-    } else if candidate.status == "paused" {
-        tracing::trace!(
-            conversation_id = %candidate.id,
-            paused_at = ?candidate.paused_at,
-            after_minutes,
-            availability,
-            "re_engage: not yet eligible"
+            last_user_message_at = ?candidate.last_user_message_at,
+            silence_after_hours,
+            availability = %availability,
+            "silence_wake eligible"
         );
     }
     eligible

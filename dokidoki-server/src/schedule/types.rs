@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use serde::Deserialize;
 
+use crate::domain::Availability;
 use crate::error::AppError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,7 +10,7 @@ pub struct CurrentState {
     pub time_hm: String,
     pub activity: String,
     pub mood: String,
-    pub availability: String,
+    pub availability: Availability,
     pub random_event: Option<String>,
 }
 
@@ -93,8 +94,8 @@ pub struct ScheduleSlot {
     #[serde(deserialize_with = "deserialize_hh_mm")]
     pub end: NaiveTime,
     pub activity: String,
-    #[serde(default = "default_availability")]
-    pub availability: String,
+    #[serde(default)]
+    pub availability: Availability,
     #[serde(default)]
     pub mood: String,
     #[serde(default)]
@@ -116,10 +117,6 @@ impl Default for RandomEvents {
             pool: Vec::new(),
         }
     }
-}
-
-fn default_availability() -> String {
-    "medium".into()
 }
 
 fn default_event_probability() -> f64 {

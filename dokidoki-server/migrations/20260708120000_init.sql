@@ -51,7 +51,15 @@ CREATE TABLE conversations (
     id                  CHAR(36)     NOT NULL PRIMARY KEY,
     user_id             CHAR(36)     NOT NULL,
     character_id        CHAR(36)     NOT NULL,
-    status              ENUM('active', 'winding_down', 'paused') NOT NULL DEFAULT 'active',
+    status              ENUM(
+                            'active',
+                            'winding_down',
+                            'paused',
+                            'paused_char_busy',
+                            'paused_user_busy'
+                        ) NOT NULL DEFAULT 'active',
+    winding_reason      ENUM('normal', 'char_busy', 'user_busy') NULL,
+    winding_started_at  DATETIME(6)  NULL,
     paused_at           DATETIME(6)  NULL,
     summary             TEXT         NULL,
     summary_covers_until DATETIME(6) NULL,

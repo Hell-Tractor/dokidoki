@@ -2,12 +2,13 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     config::ReplyDelay,
+    domain::Availability,
     utils::{uniform, UnitRng},
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplyDelayInput {
-    pub availability: String,
+    pub availability: Availability,
     /// 角色 `persona.reply_delay_factor` 区间；缺省为 1.0–1.0
     pub factor_min: f64,
     pub factor_max: f64,
@@ -20,7 +21,7 @@ pub fn compute_reply_wait_ms(
     rng: &mut impl UnitRng,
 ) -> u64 {
     let base_secs =
-        sample_availability_secs(&input.availability, input.activity_remaining_secs, config, rng);
+        sample_availability_secs(input.availability, input.activity_remaining_secs, config, rng);
     let factor = uniform(input.factor_min, input.factor_max, rng.next_unit());
     let jitter = uniform(config.jitter_min, config.jitter_max, rng.next_unit());
     let mut secs = base_secs * factor * jitter;
@@ -33,15 +34,17 @@ pub fn compute_reply_wait_ms(
 }
 
 fn sample_availability_secs(
-    availability: &str,
+    availability: Availability,
     activity_remaining_secs: Option<f64>,
     config: &ReplyDelay,
     rng: &mut impl UnitRng,
 ) -> f64 {
     match availability {
-        "high" => uniform(config.high_min_secs, config.high_max_secs, rng.next_unit()),
-        "low" => sample_low_secs(activity_remaining_secs, config, rng),
-        _ => uniform(config.medium_min_secs, config.medium_max_secs, rng.next_unit()),
+        Availability::High => uniform(config.high_min_secs, config.high_max_secs, rng.next_unit()),
+        Availability::Low => sample_low_secs(activity_remaining_secs, config, rng),
+        Availability::Medium => {
+            uniform(config.medium_min_secs, config.medium_max_secs, rng.next_unit())
+        }
     }
 }
 
@@ -94,13 +97,13 @@ mod tests {
     }
 
     fn input(
-        availability: &str,
+        availability: Availability,
         factor_min: f64,
         factor_max: f64,
         remaining: Option<f64>,
     ) -> ReplyDelayInput {
         ReplyDelayInput {
-            availability: availability.into(),
+            availability,
             factor_min,
             factor_max,
             activity_remaining_secs: remaining,
@@ -111,7 +114,11 @@ mod tests {
     fn high_availability_reply_is_short() {
         // base=0.0 → 0.3s, factor=0.0 → 1.0, jitter=0.0 → 0.85
         let mut rng = ScriptedRng::new(vec![0.0, 0.0, 0.0]);
-        let ms = compute_reply_wait_ms(&input("high", 1.0, 1.0, None), &production_config(), &mut rng);
+        let ms = compute_reply_wait_ms(
+            &input(Availability::High, 1.0, 1.0, None),
+            &production_config(),
+            &mut rng,
+        );
         assert!(ms >= 250);
         assert!(ms <= 2_300);
     }
@@ -119,7 +126,11 @@ mod tests {
     #[test]
     fn medium_availability_reply_is_longer() {
         let mut rng = ScriptedRng::new(vec![0.0, 0.0, 0.0]);
-        let ms = compute_reply_wait_ms(&input("medium", 1.0, 1.0, None), &production_config(), &mut rng);
+        let ms = compute_reply_wait_ms(
+            &input(Availability::Medium, 1.0, 1.0, None),
+            &production_config(),
+            &mut rng,
+        );
         assert!(ms >= 25_000);
         assert!(ms <= 345_000);
     }
@@ -129,8 +140,16 @@ mod tests {
         let cfg = production_config();
         let mut fast_rng = ScriptedRng::new(vec![0.5, 0.5, 0.5]);
         let mut slow_rng = ScriptedRng::new(vec![0.5, 0.5, 0.5]);
-        let fast = compute_reply_wait_ms(&input("high", 0.5, 0.7, None), &cfg, &mut fast_rng);
-        let slow = compute_reply_wait_ms(&input("high", 1.3, 1.6, None), &cfg, &mut slow_rng);
+        let fast = compute_reply_wait_ms(
+            &input(Availability::High, 0.5, 0.7, None),
+            &cfg,
+            &mut fast_rng,
+        );
+        let slow = compute_reply_wait_ms(
+            &input(Availability::High, 1.3, 1.6, None),
+            &cfg,
+            &mut slow_rng,
+        );
         assert!(slow > fast);
     }
 
@@ -138,7 +157,7 @@ mod tests {
     fn caps_delay_by_activity_remaining() {
         let mut rng = ScriptedRng::new(vec![0.9, 0.9, 0.9]);
         let ms = compute_reply_wait_ms(
-            &input("medium", 1.0, 1.0, Some(10.0)),
+            &input(Availability::Medium, 1.0, 1.0, Some(10.0)),
             &production_config(),
             &mut rng,
         );
@@ -150,8 +169,16 @@ mod tests {
         // bucket=0.1 → short; value=0.0 → min (60s); factor/jitter fixed at mid
         let mut low_value = ScriptedRng::new(vec![0.1, 0.0, 0.5, 0.5]);
         let mut high_value = ScriptedRng::new(vec![0.1, 1.0, 0.5, 0.5]);
-        let low = compute_reply_wait_ms(&input("low", 1.0, 1.0, None), &production_config(), &mut low_value);
-        let high = compute_reply_wait_ms(&input("low", 1.0, 1.0, None), &production_config(), &mut high_value);
+        let low = compute_reply_wait_ms(
+            &input(Availability::Low, 1.0, 1.0, None),
+            &production_config(),
+            &mut low_value,
+        );
+        let high = compute_reply_wait_ms(
+            &input(Availability::Low, 1.0, 1.0, None),
+            &production_config(),
+            &mut high_value,
+        );
         assert!(high > low);
     }
 }

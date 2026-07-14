@@ -25,7 +25,7 @@ pub async fn schedule(
     let reply_wait_ms =
         compute_reply_wait_ms(&ctx, &chat.chat_config.reply_delay, &mut rng);
     let read_delay_ms =
-        sample_read_receipt_delay_ms(&ctx.availability, reply_wait_ms, rng.next_unit());
+        sample_read_receipt_delay_ms(ctx.availability, reply_wait_ms, rng.next_unit());
 
     tokio::time::sleep(Duration::from_millis(read_delay_ms)).await;
     if let Err(err) = chat
@@ -108,9 +108,8 @@ async fn load_reply_context(
 
     let availability = state
         .as_ref()
-        .map(|row| row.availability.clone())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "medium".into());
+        .map(|row| row.availability)
+        .unwrap_or(crate::domain::Availability::Medium);
 
     let activity_remaining_secs = activity_remaining_secs(
         state.and_then(|row| row.activity_ends_at),

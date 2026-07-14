@@ -18,6 +18,8 @@ pub struct ForgetMemoryAction {
 pub struct ParsedLlmResponse {
     pub store_memories: Vec<StoreMemoryAction>,
     pub forget_memories: Vec<ForgetMemoryAction>,
+    /// 同轮是否出现 `[USER_BUSY]` 标记。
+    pub user_busy: bool,
     pub action: LlmAction,
 }
 
@@ -25,10 +27,15 @@ pub fn parse_llm_response(raw: &str) -> ParsedLlmResponse {
     let mut store_memories = Vec::new();
     let mut forget_memories = Vec::new();
     let mut action_lines = Vec::new();
+    let mut user_busy = false;
 
     for line in raw.lines() {
         let line = line.trim();
         if line.is_empty() {
+            continue;
+        }
+        if line == "[USER_BUSY]" || line.starts_with("[USER_BUSY]") {
+            user_busy = true;
             continue;
         }
         if let Some(payload) = line.strip_prefix("[STORE_MEMORY]") {
@@ -60,6 +67,7 @@ pub fn parse_llm_response(raw: &str) -> ParsedLlmResponse {
     ParsedLlmResponse {
         store_memories,
         forget_memories,
+        user_busy,
         action,
     }
 }
@@ -134,5 +142,13 @@ mod tests {
         assert_eq!(parsed.store_memories[0].memory_type, MemoryType::Trivial);
         assert!(parsed.store_memories[0].memory_key.is_none());
         assert_eq!(parsed.action, LlmAction::NoReply);
+        assert!(!parsed.user_busy);
+    }
+
+    #[test]
+    fn parses_user_busy_with_reply() {
+        let parsed = parse_llm_response("[USER_BUSY]\n[REPLY]好，你先去忙");
+        assert!(parsed.user_busy);
+        assert!(matches!(parsed.action, LlmAction::Reply(_)));
     }
 }

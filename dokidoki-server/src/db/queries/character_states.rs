@@ -5,7 +5,7 @@ use crate::error::AppError;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CharacterStateReplyRow {
-    pub availability: String,
+    pub availability: crate::domain::Availability,
     pub activity_ends_at: Option<DateTime<Utc>>,
 }
 
@@ -32,7 +32,7 @@ pub async fn find_reply_fields(
 pub struct CharacterStatePromptRow {
     pub current_activity: String,
     pub current_mood: String,
-    pub availability: String,
+    pub availability: crate::domain::Availability,
     pub random_event: Option<String>,
 }
 
@@ -83,7 +83,7 @@ pub async fn find_by_character_id(
 pub struct UpsertStateParams<'a> {
     pub current_activity: &'a str,
     pub current_mood: &'a str,
-    pub availability: &'a str,
+    pub availability: crate::domain::Availability,
     pub activity_ends_at: Option<DateTime<Utc>>,
     pub random_event: Option<&'a str>,
     pub random_event_date: Option<NaiveDate>,

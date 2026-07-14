@@ -130,6 +130,7 @@ mod tests {
             bubble_delay_base_ms: 400,
             bubble_delay_per_char_ms: 50,
             reply_delay: crate::config::ReplyDelay::for_test(),
+            winding_down_timeout_secs: 300,
         };
         assert_eq!(bubble_delay_ms(&config, "你好"), 500);
         assert_eq!(bubble_delay_ms(&config, ""), 400);

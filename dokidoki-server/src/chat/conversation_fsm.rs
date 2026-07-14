@@ -1,39 +1,17 @@
-//! 会话状态机：active / winding_down / paused
+//! 会话状态机：active / winding_down / paused* 。
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConversationStatus {
-    Active,
-    WindingDown,
-    Paused,
-}
+use crate::domain::Availability;
 
-impl ConversationStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::WindingDown => "winding_down",
-            Self::Paused => "paused",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "active" => Some(Self::Active),
-            "winding_down" => Some(Self::WindingDown),
-            "paused" => Some(Self::Paused),
-            _ => None,
-        }
-    }
-}
+pub use crate::domain::{ConversationStatus, WindingReason};
 
 /// 用户发消息后的处理决策。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserMessageDecision {
     /// 继续调用 LLM；`status` 有值时先更新会话状态。
     CallLlm { status: Option<ConversationStatus> },
-    /// 进入 paused，不调用 LLM。
+    /// 按 `winding_reason` 进入终态暂停，不调用 LLM。
     PauseWithoutReply,
-    /// 保持 paused，不调用 LLM。
+    /// 保持终态暂停，不调用 LLM。
     IgnoreWhilePaused,
 }
 
@@ -58,7 +36,9 @@ pub fn on_user_message(
                 UserMessageDecision::CallLlm { status: None }
             }
         }
-        ConversationStatus::Paused => {
+        ConversationStatus::Paused
+        | ConversationStatus::PausedCharBusy
+        | ConversationStatus::PausedUserBusy => {
             if substantive {
                 UserMessageDecision::CallLlm {
                     status: Some(ConversationStatus::Active),
@@ -70,12 +50,25 @@ pub fn on_user_message(
     }
 }
 
-/// LLM 输出后的状态变更（若有）。
-pub fn status_after_llm_action(action: super::parser::LlmAction) -> Option<ConversationStatus> {
-    match action {
-        super::parser::LlmAction::EndTopic(_) => Some(ConversationStatus::WindingDown),
-        super::parser::LlmAction::NoReply | super::parser::LlmAction::Reply(_) => None,
+/// 由 LLM 输出推导 `winding_down` 原因；`None` 表示不改变状态。
+///
+/// 规则：`[USER_BUSY]` 优先；否则 `[END_TOPIC]` + availability=low → char_busy；
+/// 其它 `[END_TOPIC]` → normal。
+pub fn winding_reason_after_llm(
+    user_busy_tag: bool,
+    is_end_topic: bool,
+    availability: Availability,
+) -> Option<WindingReason> {
+    if user_busy_tag {
+        return Some(WindingReason::UserBusy);
     }
+    if is_end_topic {
+        if availability == Availability::Low {
+            return Some(WindingReason::CharBusy);
+        }
+        return Some(WindingReason::Normal);
+    }
+    None
 }
 
 pub fn is_farewell(message: &str) -> bool {
@@ -102,14 +95,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paused_resumes_on_substantive_message() {
-        let decision = on_user_message(ConversationStatus::Paused, "今天好累啊", true);
-        assert_eq!(
-            decision,
-            UserMessageDecision::CallLlm {
-                status: Some(ConversationStatus::Active)
-            }
-        );
+    fn paused_variants_resume_on_substantive() {
+        for status in [
+            ConversationStatus::Paused,
+            ConversationStatus::PausedCharBusy,
+            ConversationStatus::PausedUserBusy,
+        ] {
+            let decision = on_user_message(status, "今天好累啊", true);
+            assert_eq!(
+                decision,
+                UserMessageDecision::CallLlm {
+                    status: Some(ConversationStatus::Active)
+                }
+            );
+        }
     }
 
     #[test]
@@ -142,11 +141,38 @@ mod tests {
     }
 
     #[test]
-    fn end_topic_sets_winding_down() {
-        let action = super::super::parser::parse_action("[END_TOPIC]我先走了|||等下聊");
+    fn winding_reason_from_end_topic_and_user_busy() {
         assert_eq!(
-            status_after_llm_action(action),
-            Some(ConversationStatus::WindingDown)
+            winding_reason_after_llm(false, true, Availability::Low),
+            Some(WindingReason::CharBusy)
+        );
+        assert_eq!(
+            winding_reason_after_llm(false, true, Availability::High),
+            Some(WindingReason::Normal)
+        );
+        assert_eq!(
+            winding_reason_after_llm(true, true, Availability::Low),
+            Some(WindingReason::UserBusy)
+        );
+        assert_eq!(
+            winding_reason_after_llm(false, false, Availability::Low),
+            None
+        );
+    }
+
+    #[test]
+    fn reason_maps_to_terminal() {
+        assert_eq!(
+            WindingReason::Normal.terminal_status(),
+            ConversationStatus::Paused
+        );
+        assert_eq!(
+            WindingReason::CharBusy.terminal_status(),
+            ConversationStatus::PausedCharBusy
+        );
+        assert_eq!(
+            WindingReason::UserBusy.terminal_status(),
+            ConversationStatus::PausedUserBusy
         );
     }
 }

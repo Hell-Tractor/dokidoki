@@ -4,6 +4,7 @@ use chrono::{DateTime, NaiveTime, Utc};
 
 use crate::{
     config::Proactive,
+    domain::Availability,
     time::{is_in_dnd_window, user_day_bounds},
     utils::UnitRng,
 };
@@ -11,7 +12,7 @@ use crate::{
 /// 是否通过概率闸门：`random_unit < base(availability) * probability_factor`。
 pub fn passes_probability_gate(
     config: &Proactive,
-    availability: &str,
+    availability: Availability,
     probability_factor: f64,
     rng: &mut impl UnitRng,
 ) -> bool {
@@ -55,6 +56,7 @@ pub fn day_bounds_for_user(
 mod tests {
     use super::*;
     use chrono::{NaiveTime, TimeZone};
+    use crate::domain::Availability;
     use crate::utils::ScriptedRng;
 
     fn test_proactive_config() -> Proactive {
@@ -96,20 +98,20 @@ mod tests {
         // high base 0.45 * 1.0 = 0.45; unit 0.4 → pass; 0.5 → fail
         assert!(passes_probability_gate(
             &config,
-            "high",
+            Availability::High,
             1.0,
             &mut ScriptedRng::new(vec![0.4])
         ));
         assert!(!passes_probability_gate(
             &config,
-            "high",
+            Availability::High,
             1.0,
             &mut ScriptedRng::new(vec![0.5])
         ));
         // factor 0 → never
         assert!(!passes_probability_gate(
             &config,
-            "high",
+            Availability::High,
             0.0,
             &mut ScriptedRng::new(vec![0.0])
         ));
@@ -125,9 +127,8 @@ mod tests {
             daily_greeting_window_min_mins: 30,
             daily_greeting_window_max_mins: 60,
         };
-        assert_eq!(config.base_probability("high"), 0.9);
-        assert_eq!(config.base_probability("medium"), 0.1);
-        assert_eq!(config.base_probability("low"), 0.0);
-        assert_eq!(config.base_probability("unknown"), 0.1);
+        assert_eq!(config.base_probability(Availability::High), 0.9);
+        assert_eq!(config.base_probability(Availability::Medium), 0.1);
+        assert_eq!(config.base_probability(Availability::Low), 0.0);
     }
 }

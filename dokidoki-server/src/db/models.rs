@@ -53,7 +53,8 @@ pub struct Conversation {
     pub id: String,
     pub user_id: String,
     pub character_id: String,
-    pub status: String,
+    pub status: crate::domain::ConversationStatus,
+    pub winding_reason: Option<crate::domain::WindingReason>,
     pub first_contact_done: bool,
 }
 
@@ -62,7 +63,7 @@ pub struct ConversationListRow {
     pub id: String,
     pub character_id: String,
     pub character_name: String,
-    pub status: String,
+    pub status: crate::domain::ConversationStatus,
     pub current_activity: Option<String>,
     pub last_message_content: Option<String>,
     pub last_message_created_at: Option<chrono::DateTime<chrono::Utc>>,

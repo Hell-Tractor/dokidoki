@@ -36,7 +36,7 @@ impl From<Conversation> for ConversationResponse {
         Self {
             id: conversation.id,
             character_id: conversation.character_id,
-            status: conversation.status,
+            status: conversation.status.as_str().to_owned(),
             first_contact_done: conversation.first_contact_done,
         }
     }

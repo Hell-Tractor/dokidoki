@@ -174,8 +174,9 @@
 
 > 本里程碑只做服务端生成 + 落库 + **WS 在线投递**；FCM / 离线推送延后到「推送与设备」。
 >
-> **同 tick 多触发**：每个 `(user, character)` 会话对只发 **一条**，按下表优先级取最高者。  
-> 优先级（高 → 低）：`daily_greeting`（含 special）→ `re_engage` → `silence_wake` → `mood_followup` → `schedule_change`。
+> **全局**：当前日程槽 `kind=sleep` 时，**禁止一切** proactive（含 re_engage / daily_greeting）。日程时段**不重叠**；忙段与 sleep **首尾相接**时由 **`pre_sleep`** 在切入 sleep 前发晚安（及可选关心）。
+>
+> **同 tick 多触发**优先级（高 → 低）：`pre_sleep` → `daily_greeting`（含 special）→ `re_engage` → `silence_wake` → `mood_followup` → `schedule_change`。
 
 #### 骨架与闸门
 
@@ -185,31 +186,67 @@
 - [x] 勿扰时段校验（`user_character_settings` + `users.timezone` 本地墙钟）
 - [x] availability / `proactive.probability_factor` 抽样
 - [x] LLM 失败：本轮跳过，不计日上限、不写 log
-- [x] 投递成功：`proactive_logs` + `last_proactive_at`；`re_engage` 时 `paused → active`
+- [x] 投递成功：`proactive_logs` + `last_proactive_at`；终态→`active` 时清 `paused_at` / `winding_reason`
+- [x] **`kind=sleep` 全局禁 proactive**
+- [x] `winding_down` 超时：全局 config，默认 **5 分钟**无用户回复 → 按 `winding_reason` 落地终态（与告别落地同一套逻辑）
+
+#### 会话状态（重构，相对原三段状态）
+
+> 保留 `paused` = **话题正常结束，不必重启**（下次找新话题）。  
+> 新增两态 = **话题异常中断，需要重启**。
+
+| 状态 | 含义 | 可触发的 proactive |
+|------|------|-------------------|
+| `active` | 正常对话 | `pre_sleep` / daily_greeting / schedule_change / mood…（非 sleep 内） |
+| `winding_down` | 收束中，还可多聊几句；**不可** proactive | — |
+| `paused` | 正常结束 | `pre_sleep` / **`silence_wake`** |
+| `paused_char_busy` | 角色去忙而中断 | `pre_sleep` / **`re_engage`**（忙完 ≈ `activity_ends_at`） |
+| `paused_user_busy` | 用户去忙而中断 | `pre_sleep` / **`re_engage`**（persona 时间→概率曲线） |
+
+- [x] `conversations` schema：`status` 扩展 + `winding_reason` / `winding_started_at`（已并入 init migration）
+- [x] FSM：告别 / 超时按 `winding_reason` → `paused` / `paused_char_busy` / `paused_user_busy`
+- [x] **角色忙**：`[END_TOPIC]` 且当时 `availability=low` → `winding_down` + `winding_reason=char_busy`；Prompt 强约束文案须说明去忙（可多聊几句再告别）
+- [x] **用户忙**：主回复 Prompt 打 tag（如 `[USER_BUSY]`，有上下文）→ `winding_down` + `user_busy`；可多聊几句收尾
+- [x] **正常收束**：`[END_TOPIC]` 且非 char_busy → `winding_reason=normal` → 终态 `paused`
+- [x] persona：废弃固定等待语义的 `re_engage_after_minutes`（兼容可读）；新增 `user_busy_reengage` 曲线字段
+- [x] 弃用「固定 `re_engage_after_minutes` 后必触发」的旧 re_engage 条件
 
 #### 触发器（逐个实现）
 
+- [ ] **`pre_sleep`**  
+  - 即将切入 / 刚切入 `kind=sleep` **之前**发晚安类收束（不在 sleep 槽内刷屏）  
+  - 每角色每日至多一次；计入 proactive 日上限与 `proactive_logs`（`trigger_type=pre_sleep`）  
+  - 若当时 `paused_char_busy`：按性格决定是否顺便问用户忙完没  
+  - 覆盖忙段与 sleep 首尾相接、不宜立刻 `re_engage` 开聊的边界；睡醒后再 `daily_greeting` / `re_engage`  
+  - Prompt：新建场景模板（写入《Prompt规范》）
 - [x] **`daily_greeting`（合并 `special_date`）**  
-  - 日程起床段内 30–60 分钟窗随机触发；每角色每日至多一次（调度与现方案不变）  
-  - **不单独跑 special_date tick**；同轮问候可叠加 T-18 语境：  
-    - 用户生日（`users.birthday`，按用户时区本地日）  
-    - 公共节日：~~Nager.Date~~ **暂缓**（覆盖不全，后续重新方案评估）  
-- [~] ~~用户可配置节日地区：`users.holiday_region`~~（随公共节日方案一并评估）  
-- [~] ~~Nager.Date 适配~~（暂缓）
-- [x] **`re_engage`**：`status=paused` 且 `now - paused_at ≥ re_engage_after_minutes`（persona），availability ≥ medium；投递成功后 `paused → active`
-- [ ] **`silence_wake`**：距用户末条消息 > `silence_after_hours`，availability ≥ medium
-- [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却（需补情绪标记数据/来源）
-- [ ] **`schedule_change`**：`character_states` 活动段刚变化且适合主动分享
+  - 日程 `kind=wake` 段内 30–60 分钟窗；每角色每日至多一次  
+  - 同轮可叠 T-18：用户生日；公共节日 **暂缓**
+- [~] ~~节日地区 / Nager~~（暂缓，见下）
+- [x] **`re_engage`**
+  - [x] `paused_char_busy`：`now ≥ activity_ends_at`，非 sleep，再走可用性/概率闸门 → `active`
+  - [x] `paused_user_busy`：按 `user_busy_reengage` 的 \(P(t)\) × 全局闸门抽样 → `active`
+- [x] **`silence_wake`**：仅 `status=paused`；距用户末条 ≥ `silence_after_hours`
+- [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却
+- [ ] **`schedule_change`**：活动段刚变化且适合主动分享
 
 #### Prompt
 
-- [x] T-12 / T-13 / T-15 / T-18（`daily_greeting` + `re_engage`；生日可叠 T-18）
-- [ ] 落地 T-14 / T-16 / T-17 场景模板
+- [x] T-12 / T-13 / T-14 / T-15 / T-18
+- [x] T-02 / 主回复：`[USER_BUSY]` tag；`availability=low` 下 `[END_TOPIC]` 须说明去忙
+- [ ] **`pre_sleep` 场景模板**（晚安；`paused_char_busy` 时可叠加「忙完没」关心）
+- [ ] 落地 T-16 / T-17
+- [ ] `re_engage` 场景区分 char_busy / user_busy（可调 T-15 或附加）
+
+#### 延后（记入文档，本期不做）
+
+- [ ] **日程日初扰动**：每天开始时对活动 start/end 做适度扰动，使作息更自然（原计划放在 re_engage 浮动处，改挂日程）
+- [ ] 创建/校验日程：时段不重叠、必有 `end`；服务端检测
 
 #### P2 / 暂缓（公共节日）
 
-- [ ] 公共节日方案重评估（原 Nager.Date 覆盖不全，不做）
-- [ ] 用户可配置节日地区 + 节日数据源适配
+- [ ] 公共节日方案重评估（原 Nager.Date 覆盖不全）
+- [ ] 用户可配置节日地区 + 数据源适配
 - [ ] 私人纪念日经 memory（`date.*`）在 `daily_greeting` 当日注入 T-18
 
 ### 角色生日反应（P2，暂不做）

@@ -1,5 +1,6 @@
-use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T15, T18, T19};
+use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T18, T19};
 use crate::domain::persona::Persona;
+use crate::domain::Availability;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentStatePrompt {
@@ -7,7 +8,7 @@ pub struct CurrentStatePrompt {
     pub time_hm: String,
     pub activity: String,
     pub mood: String,
-    pub availability: String,
+    pub availability: Availability,
     pub random_event: Option<String>,
 }
 
@@ -113,6 +114,7 @@ pub fn format_proactive_scene(
             }
         }
         "re_engage" => parts.push(T15.to_owned()),
+        "silence_wake" => parts.push(T14.to_owned()),
         _ => {
             parts.push(format!(
                 "【主动场景】\n你正在主动找对方说话（触发：{trigger}）。语气符合人设与当前状态。"
@@ -139,7 +141,7 @@ pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
         .replace("{time}", &state.time_hm)
         .replace("{activity}", &state.activity)
         .replace("{mood}", &state.mood)
-        .replace("{availability}", &state.availability)
+        .replace("{availability}", state.availability.as_str())
         .replace("{random_event_block}", random_event_block.trim_end())
 }
 
@@ -190,7 +192,7 @@ mod tests {
             time_hm: "10:00".into(),
             activity: "工作".into(),
             mood: "专注".into(),
-            availability: "low".into(),
+            availability: Availability::Low,
             random_event: Some("电脑坏了".into()),
         };
         let prompt = build_system_prompt(&Persona::default(), "小咲", "阿明", Some(&state), &[], None);
@@ -207,7 +209,7 @@ mod tests {
             time_hm: "08:00".into(),
             activity: "早餐".into(),
             mood: "元气".into(),
-            availability: "medium".into(),
+            availability: Availability::Medium,
             random_event: None,
         };
         let section = format_current_state_section(&state);
@@ -268,5 +270,12 @@ mod tests {
         let scene = format_proactive_scene("re_engage", None);
         assert!(scene.contains("话题重启"));
         assert!(scene.contains("paused"));
+    }
+
+    #[test]
+    fn proactive_silence_wake_scene_uses_t14() {
+        let scene = format_proactive_scene("silence_wake", None);
+        assert!(scene.contains("沉默唤醒"));
+        assert!(scene.contains("很久没回"));
     }
 }

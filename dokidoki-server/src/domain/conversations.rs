@@ -52,7 +52,7 @@ impl From<ConversationListRow> for ConversationListItem {
             id: row.id,
             character_id: row.character_id,
             character_name: row.character_name,
-            status: row.status,
+            status: row.status.as_str().to_owned(),
             last_message,
             current_activity: row.current_activity.filter(|activity| !activity.is_empty()),
         }

@@ -30,7 +30,8 @@ mod reply_scheduler;
 pub use context::build_proactive_request;
 
 use conversation_fsm::{
-    on_user_message, status_after_llm_action, ConversationStatus, UserMessageDecision,
+    on_user_message, winding_reason_after_llm, ConversationStatus, UserMessageDecision,
+    WindingReason,
 };
 use parser::LlmAction;
 
@@ -266,17 +267,26 @@ impl ChatService {
             .ok_or_else(|| AppError::not_found("角色不存在"))?;
         let pause_on_farewell = persona.conversation_behavior.pause_on_farewell;
 
-        let current_status = ConversationStatus::parse(&conversation.status)
-            .unwrap_or(ConversationStatus::Active);
+        let current_status = conversation.status;
 
         match on_user_message(current_status, &user_content, pause_on_farewell) {
             UserMessageDecision::PauseWithoutReply => {
+                let reason = conversation
+                    .winding_reason
+                    .unwrap_or(WindingReason::Normal);
+                let terminal = reason.terminal_status();
                 tracing::info!(
                     conversation_id = %conversation_id,
-                    "farewell in winding_down; pause without reply"
+                    status = %terminal,
+                    winding_reason = %reason,
+                    "farewell in winding_down; enter terminal pause without reply"
                 );
-                self.update_conversation_status(conversation_id, ConversationStatus::Paused)
-                    .await?;
+                conversation_queries::enter_terminal_pause(
+                    &self.db,
+                    conversation_id,
+                    terminal,
+                )
+                .await?;
                 return Ok(Vec::new());
             }
             UserMessageDecision::IgnoreWhilePaused => {
@@ -293,7 +303,7 @@ impl ChatService {
                         status = status.as_str(),
                         "conversation status updated before llm"
                     );
-                    self.update_conversation_status(conversation_id, status)
+                    self.apply_conversation_status(conversation_id, status, None)
                         .await?;
                 }
             }
@@ -317,14 +327,31 @@ impl ChatService {
         )
         .await?;
 
-        if let Some(status) = status_after_llm_action(parsed.action.clone()) {
+        let availability = crate::db::queries::character_states::find_reply_fields(
+            &self.db,
+            &conversation.character_id,
+        )
+        .await?
+        .map(|row| row.availability)
+        .unwrap_or(crate::domain::Availability::Medium);
+        let is_end_topic = matches!(parsed.action, LlmAction::EndTopic(_));
+        if let Some(reason) =
+            winding_reason_after_llm(parsed.user_busy, is_end_topic, availability)
+        {
             tracing::info!(
                 conversation_id = %conversation_id,
-                status = status.as_str(),
-                "conversation status updated after llm action"
+                winding_reason = %reason,
+                user_busy = parsed.user_busy,
+                is_end_topic,
+                availability = %availability,
+                "conversation entered winding_down"
             );
-            self.update_conversation_status(conversation_id, status)
-                .await?;
+            conversation_queries::enter_winding_down(
+                &self.db,
+                conversation_id,
+                reason,
+            )
+            .await?;
         }
 
         Ok(match parsed.action {
@@ -478,18 +505,35 @@ impl ChatService {
             .await;
     }
 
-    async fn update_conversation_status(
+    async fn apply_conversation_status(
         &self,
         conversation_id: &str,
         status: ConversationStatus,
+        winding_reason: Option<WindingReason>,
     ) -> Result<(), AppError> {
-        let set_paused_at = status == ConversationStatus::Paused;
-        conversation_queries::update_status(
-            &self.db,
-            conversation_id,
-            status.as_str(),
-            set_paused_at,
-        )
-        .await
+        match status {
+            ConversationStatus::Active => {
+                conversation_queries::enter_active(&self.db, conversation_id).await
+            }
+            ConversationStatus::WindingDown => {
+                let reason = winding_reason.unwrap_or(WindingReason::Normal);
+                conversation_queries::enter_winding_down(
+                    &self.db,
+                    conversation_id,
+                    reason,
+                )
+                .await
+            }
+            ConversationStatus::Paused
+            | ConversationStatus::PausedCharBusy
+            | ConversationStatus::PausedUserBusy => {
+                conversation_queries::enter_terminal_pause(
+                    &self.db,
+                    conversation_id,
+                    status,
+                )
+                .await
+            }
+        }
     }
 }

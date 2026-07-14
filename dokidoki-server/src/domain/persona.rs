@@ -139,6 +139,8 @@ pub struct ProactiveConfig {
     pub silence_after_hours: f64,
     #[serde(default = "default_probability_factor")]
     pub probability_factor: f64,
+    #[serde(default)]
+    pub user_busy_reengage: UserBusyReengage,
 }
 
 impl Default for ProactiveConfig {
@@ -146,6 +148,7 @@ impl Default for ProactiveConfig {
         Self {
             silence_after_hours: default_silence_after_hours(),
             probability_factor: default_probability_factor(),
+            user_busy_reengage: UserBusyReengage::default(),
         }
     }
 }
@@ -156,6 +159,60 @@ fn default_silence_after_hours() -> f64 {
 
 fn default_probability_factor() -> f64 {
     1.0
+}
+
+/// `paused_user_busy` 下 re_engage 的时间→概率曲线。
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct UserBusyReengage {
+    #[serde(default = "default_user_busy_min_delay")]
+    pub min_delay_minutes: u32,
+    #[serde(default = "default_user_busy_ramp")]
+    pub ramp_minutes: u32,
+    #[serde(default = "default_user_busy_peak")]
+    pub peak_probability: f64,
+}
+
+impl Default for UserBusyReengage {
+    fn default() -> Self {
+        Self {
+            min_delay_minutes: default_user_busy_min_delay(),
+            ramp_minutes: default_user_busy_ramp(),
+            peak_probability: default_user_busy_peak(),
+        }
+    }
+}
+
+impl UserBusyReengage {
+    /// `elapsed_minutes` 对应 \(P(t)\)（未乘全局闸门）。
+    pub fn probability(&self, elapsed_minutes: f64) -> f64 {
+        let min = f64::from(self.min_delay_minutes);
+        let ramp = f64::from(self.ramp_minutes).max(0.0);
+        let peak = self.peak_probability.clamp(0.0, 1.0);
+        if elapsed_minutes < min {
+            return 0.0;
+        }
+        if ramp <= 0.0 {
+            return peak;
+        }
+        let into_ramp = elapsed_minutes - min;
+        if into_ramp >= ramp {
+            peak
+        } else {
+            peak * (into_ramp / ramp)
+        }
+    }
+}
+
+fn default_user_busy_min_delay() -> u32 {
+    30
+}
+
+fn default_user_busy_ramp() -> u32 {
+    90
+}
+
+fn default_user_busy_peak() -> f64 {
+    0.6
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -205,6 +262,19 @@ mod tests {
         assert_eq!(persona.reply_delay_factor, ReplyDelayFactor::default());
         assert_eq!(persona.conversation_behavior.skip_reply_tendency, "medium");
         assert_eq!(persona.proactive.silence_after_hours, 8.0);
+        assert_eq!(persona.proactive.user_busy_reengage.min_delay_minutes, 30);
+    }
+
+    #[test]
+    fn user_busy_reengage_probability_ramps() {
+        let curve = UserBusyReengage {
+            min_delay_minutes: 30,
+            ramp_minutes: 90,
+            peak_probability: 0.6,
+        };
+        assert_eq!(curve.probability(29.0), 0.0);
+        assert!((curve.probability(75.0) - 0.3).abs() < 1e-9);
+        assert_eq!(curve.probability(120.0), 0.6);
     }
 
     #[test]

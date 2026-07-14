@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 编写日期 | 2026-07-08 |
 | 上游文档 | [详细设计说明书](./详细设计说明书.md) |
 | 用途 | 实现时直接引用的 Prompt 模板与组装规则 |
@@ -150,6 +150,7 @@ T-01 角色核心
 3. 暂时离开 / 结束话题：
    [END_TOPIC]消息1|||消息2
    - 当你要去忙、上课、睡觉等，符合当前日程时使用
+   - 若当前 availability=low（忙碌）：文案必须明确说明自己要去忙什么（如上课、做事），不要只说「先这样」
    - 示例：[END_TOPIC]我先去上课了|||等下聊
 
 4. 记住事实（可与 REPLY 同轮出现，写在 REPLY 之前）：
@@ -162,6 +163,14 @@ T-01 角色核心
    [FORGET_MEMORY]memory_key
    或 [FORGET_MEMORY]关键词
    - 当用户否定之前说过的事时使用
+
+6. 标记用户去忙（可与 REPLY / END_TOPIC / NO_REPLY 同轮，单独一行）：
+   [USER_BUSY]
+   - 当用户表示自己要去忙、要先离开处理事情、稍后再聊等（结合上下文与说话习惯判断）
+   - 不要仅因用户短回复或沉默就标记
+   - 示例：
+     [USER_BUSY]
+     [REPLY]好，你先去忙|||我也去弄点事
 
 【同轮多动作示例】
 [STORE_MEMORY]用户今天很累|trivial
@@ -460,16 +469,17 @@ T-01 角色核心
 | 顺序 | 规则 |
 |------|------|
 | 1 | 按行扫描，提取所有 `[STORE_MEMORY]…`、`[FORGET_MEMORY]…`，先执行记忆副作用 |
-| 2 | 识别 `[NO_REPLY]`：无气泡，记录 turn |
-| 3 | 识别 `[END_TOPIC]`：取其后内容按 `\|\|\|` 拆分，多气泡投递，状态 → winding_down |
-| 4 | 识别 `[REPLY]`：取其后内容按 `\|\|\|` 拆分；若无动作头但有多段内容，整段作 REPLY |
-| 5 | 兜底：无动作头时，整段作单条 REPLY；仍含 `\|\|\|` 则拆分 |
-| 6 | 拆分失败兜底：按 `。！？\n` 切分，最多 4 条 |
+| 2 | 若存在 `[USER_BUSY]`：记标记（进入/保持 `winding_down` 且 `winding_reason=user_busy`，可与其它动作同轮） |
+| 3 | 识别 `[NO_REPLY]`：无气泡，记录 turn |
+| 4 | 识别 `[END_TOPIC]`：多气泡投递 → `winding_down`；若本轮无 `USER_BUSY` 且当时 availability=low → `winding_reason=char_busy`，否则（无 USER_BUSY 时）`normal` |
+| 5 | 识别 `[REPLY]`：取其后内容按 `\|\|\|` 拆分；若无动作头但有多段内容，整段作 REPLY |
+| 6 | 兜底：无动作头时，整段作单条 REPLY；仍含 `\|\|\|` 则拆分 |
+| 7 | 拆分失败兜底：按 `。！？\n` 切分，最多 4 条 |
 
 **非法输出处理**：
 - 空输出 → 视为 `[NO_REPLY]`
 - 超长单条 → 截断至 20 字并记录日志
-- 动作头与内容粘连 → 正则 `\[(REPLY|NO_REPLY|END_TOPIC|STORE_MEMORY|FORGET_MEMORY)\]`
+- 动作头与内容粘连 → 正则 `\[(REPLY|NO_REPLY|END_TOPIC|STORE_MEMORY|FORGET_MEMORY|USER_BUSY)\]`
 
 ---
 
@@ -545,3 +555,4 @@ T-01 角色核心
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-07-08 | 初版：完整 Prompt 模板与组装规则 |
+| v1.1 | 2026-07-14 | `[USER_BUSY]`；忙碌 END_TOPIC 须说明去忙；解析与 winding_reason |

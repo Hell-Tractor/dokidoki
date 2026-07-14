@@ -43,7 +43,7 @@ pub fn resolve(
             time_hm: local_time.format("%H:%M").to_string(),
             activity: slot.activity.clone(),
             mood: slot.mood.clone(),
-            availability: slot.availability.clone(),
+            availability: slot.availability,
             random_event,
         },
         random_event_date,
@@ -200,6 +200,19 @@ pub struct WakeupSlotStatus {
     pub activity: String,
     pub minutes_into_slot: u32,
     pub local_date: NaiveDate,
+}
+
+/// 若 `now` 落在某一活动段内则返回该段的 `kind`。
+pub fn current_slot_kind(
+    schedule: &Schedule,
+    now: DateTime<Utc>,
+) -> Result<Option<SlotKind>, AppError> {
+    let tz = parse_timezone(&schedule.timezone)?;
+    let local = now.with_timezone(&tz);
+    let local_time = local.time();
+    let weekday_key = weekday_template_key(local.weekday());
+    let slots = day_slots(&schedule.weekly_template, weekday_key)?;
+    Ok(find_matching_slot(slots, local_time).map(|slot| slot.kind))
 }
 
 /// 若 `now` 落在 `kind = wake` 活动段内则返回状态。

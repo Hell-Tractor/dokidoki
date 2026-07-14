@@ -54,6 +54,7 @@ impl Config {
                 bubble_delay_base_ms: 1,
                 bubble_delay_per_char_ms: 1,
                 reply_delay: ReplyDelay::for_test(),
+                winding_down_timeout_secs: 300,
             },
             summary: Summary {
                 trigger_turns: 80,
@@ -115,6 +116,13 @@ pub struct Chat {
     pub bubble_delay_base_ms: u32,
     pub bubble_delay_per_char_ms: u32,
     pub reply_delay: ReplyDelay,
+    /// `winding_down` 无用户回复时自动落地终态的超时（秒），默认 300。
+    #[serde(default = "default_winding_down_timeout_secs")]
+    pub winding_down_timeout_secs: u64,
+}
+
+fn default_winding_down_timeout_secs() -> u64 {
+    300
 }
 
 /// M-15 忙碌回复延迟参数（秒 / 系数），对应 `docs/详细设计说明书.md` §8。
@@ -215,11 +223,11 @@ pub struct Proactive {
 }
 
 impl Proactive {
-    pub fn base_probability(&self, availability: &str) -> f64 {
+    pub fn base_probability(&self, availability: crate::domain::Availability) -> f64 {
         match availability {
-            "high" => self.availability_high,
-            "low" => self.availability_low,
-            _ => self.availability_medium,
+            crate::domain::Availability::High => self.availability_high,
+            crate::domain::Availability::Low => self.availability_low,
+            crate::domain::Availability::Medium => self.availability_medium,
         }
     }
 }

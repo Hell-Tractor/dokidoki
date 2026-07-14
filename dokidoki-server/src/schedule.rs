@@ -12,7 +12,9 @@ use crate::{
 };
 
 pub use resolver::resolve;
-pub use resolver::{current_wakeup_slot, in_daily_greeting_window, WakeupSlotStatus};
+pub use resolver::{
+    current_slot_kind, current_wakeup_slot, in_daily_greeting_window, WakeupSlotStatus,
+};
 pub use scheduler::run as run_scheduler;
 pub use types::{CurrentState, Schedule, SlotKind};
 
@@ -69,7 +71,7 @@ pub async fn refresh_character_state(
         state_queries::UpsertStateParams {
             current_activity: &resolved.current.activity,
             current_mood: &resolved.current.mood,
-            availability: &resolved.current.availability,
+            availability: resolved.current.availability,
             activity_ends_at: resolved.activity_ends_at,
             random_event: resolved.current.random_event.as_deref(),
             random_event_date: Some(resolved.random_event_date),
@@ -141,7 +143,7 @@ fn default_state() -> CurrentState {
         time_hm: Utc::now().format("%H:%M").to_string(),
         activity: String::new(),
         mood: String::new(),
-        availability: "medium".to_owned(),
+        availability: crate::domain::Availability::Medium,
         random_event: None,
     }
 }
