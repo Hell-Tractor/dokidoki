@@ -32,9 +32,10 @@ class _SetupPageState extends ConsumerState<SetupPage> {
         title: const Text('Dokidoki'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(4),
-          child:           LinearProgressIndicator(
+          child: LinearProgressIndicator(
             value: (step + 1) / 2,
-            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            backgroundColor: Colors.white.withValues(alpha: 0.35),
+            color: Colors.white,
           ),
         ),
       ),

@@ -148,7 +148,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   Text(
                     '对方正在输入…',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                   ),
               ],

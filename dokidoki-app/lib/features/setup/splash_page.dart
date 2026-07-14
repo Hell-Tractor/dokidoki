@@ -57,14 +57,20 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            FlutterLogo(size: 72),
-            SizedBox(height: 24),
-            CircularProgressIndicator(),
+            Icon(
+              Icons.favorite_rounded,
+              size: 72,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 24),
+            CircularProgressIndicator(
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ],
         ),
       ),
