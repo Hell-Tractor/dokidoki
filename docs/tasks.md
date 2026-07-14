@@ -38,7 +38,7 @@
 - [x] `PATCH /me`（display_name、birthday、timezone、max_proactive_per_day）
 - [x] 注册必填 `timezone`（IANA；客户端默认设备时区）
 - [ ] 支持 PATCH 清空 birthday（`null` 语义）
-- [ ] `holiday_region`（Nager country code；随 M-07 公共节日）
+- [~] ~~`holiday_region`~~（公共节日方案暂缓，后续重评估）
 
 ### M-02 多角色会话（P0）
 
@@ -193,21 +193,23 @@
   - 日程起床段内 30–60 分钟窗随机触发；每角色每日至多一次（调度与现方案不变）  
   - **不单独跑 special_date tick**；同轮问候可叠加 T-18 语境：  
     - 用户生日（`users.birthday`，按用户时区本地日）  
-    - 公共节日：[Nager.Date](https://date.nager.at/)（按 `users.holiday_region` 拉当年 Public Holidays，服务端缓存）  
-- [ ] 用户可配置节日地区：`users.holiday_region`（Nager country code，如 `CN` / `US`；`GET/PATCH /me` + Settings）  
-- [ ] Nager.Date 适配：按 region+年份拉取并缓存；tick 只读缓存
-- [ ] **`re_engage`**：`status=paused` 且超过 `re_engage_after_minutes`，availability ≥ medium
+    - 公共节日：~~Nager.Date~~ **暂缓**（覆盖不全，后续重新方案评估）  
+- [~] ~~用户可配置节日地区：`users.holiday_region`~~（随公共节日方案一并评估）  
+- [~] ~~Nager.Date 适配~~（暂缓）
+- [x] **`re_engage`**：`status=paused` 且 `now - paused_at ≥ re_engage_after_minutes`（persona），availability ≥ medium；投递成功后 `paused → active`
 - [ ] **`silence_wake`**：距用户末条消息 > `silence_after_hours`，availability ≥ medium
 - [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却（需补情绪标记数据/来源）
 - [ ] **`schedule_change`**：`character_states` 活动段刚变化且适合主动分享
 
 #### Prompt
 
-- [x] T-12 / T-13 / T-18（`daily_greeting`；生日可叠 T-18；其余 T-14～T-17 随对应触发器落地）
-- [ ] 落地 T-14～T-17 场景模板
+- [x] T-12 / T-13 / T-15 / T-18（`daily_greeting` + `re_engage`；生日可叠 T-18）
+- [ ] 落地 T-14 / T-16 / T-17 场景模板
 
-#### P2（暂不做）
+#### P2 / 暂缓（公共节日）
 
+- [ ] 公共节日方案重评估（原 Nager.Date 覆盖不全，不做）
+- [ ] 用户可配置节日地区 + 节日数据源适配
 - [ ] 私人纪念日经 memory（`date.*`）在 `daily_greeting` 当日注入 T-18
 
 ### 角色生日反应（P2，暂不做）
@@ -258,7 +260,7 @@
 
 - [x] P-05 SettingsPage：称呼、生日、时区编辑（`PATCH /me`）
 - [x] 全局主动消息日上限 Stepper
-- [ ] 节日地区选择（`holiday_region`，随 M-07）
+- [~] ~~节日地区选择（`holiday_region`）~~（公共节日方案暂缓）
 
 ### M-02 多角色会话（P0）
 

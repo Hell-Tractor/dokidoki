@@ -110,11 +110,22 @@ async fn process_candidate(
     let (daily_greeting_eligible, greeting_extras) =
         evaluate_daily_greeting(chat, candidate, now).await?;
 
+    let persona = characters::find_persona(&chat.db, character_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("角色不存在"))?;
+    let re_engage_eligible = evaluate_re_engage(
+        candidate,
+        now,
+        availability,
+        persona.conversation_behavior.re_engage_after_minutes,
+    );
+
     let trigger = triggers::select_trigger(&TriggerContext {
         conversation_id,
         status: &candidate.status,
         availability,
         daily_greeting_eligible,
+        re_engage_eligible,
     });
     let Some(trigger) = trigger else {
         tracing::trace!(
@@ -122,14 +133,12 @@ async fn process_candidate(
             status = %candidate.status,
             availability,
             daily_greeting_eligible,
+            re_engage_eligible,
             "proactive skipped: no trigger matched"
         );
         return Ok(false);
     };
 
-    let persona = characters::find_persona(&chat.db, character_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("角色不存在"))?;
     let probability_factor = persona.proactive.probability_factor;
     if !passes_probability_gate(
         &chat.proactive_config,
@@ -295,6 +304,39 @@ async fn evaluate_daily_greeting(
         "daily_greeting eligible"
     );
     Ok((true, extras))
+}
+
+fn evaluate_re_engage(
+    candidate: &conversation_queries::ProactiveCandidateRow,
+    now: chrono::DateTime<Utc>,
+    availability: &str,
+    after_minutes: u32,
+) -> bool {
+    let eligible = triggers::is_re_engage_eligible(
+        &candidate.status,
+        candidate.paused_at,
+        now,
+        after_minutes,
+        availability,
+    );
+    if eligible {
+        tracing::debug!(
+            conversation_id = %candidate.id,
+            paused_at = ?candidate.paused_at,
+            after_minutes,
+            availability,
+            "re_engage eligible"
+        );
+    } else if candidate.status == "paused" {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            paused_at = ?candidate.paused_at,
+            after_minutes,
+            availability,
+            "re_engage: not yet eligible"
+        );
+    }
+    eligible
 }
 
 fn character_local_day_bounds(

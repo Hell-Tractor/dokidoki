@@ -1,4 +1,4 @@
-use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T18, T19};
+use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T15, T18, T19};
 use crate::domain::persona::Persona;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +112,7 @@ pub fn format_proactive_scene(
                 parts.push(T18.replace("{special_date_detail}", detail));
             }
         }
+        "re_engage" => parts.push(T15.to_owned()),
         _ => {
             parts.push(format!(
                 "【主动场景】\n你正在主动找对方说话（触发：{trigger}）。语气符合人设与当前状态。"
@@ -260,5 +261,12 @@ mod tests {
         assert!(with_special.contains("每日问候"));
         assert!(with_special.contains("特殊日期"));
         assert!(with_special.contains("对方生日（07-11）"));
+    }
+
+    #[test]
+    fn proactive_re_engage_scene_uses_t15() {
+        let scene = format_proactive_scene("re_engage", None);
+        assert!(scene.contains("话题重启"));
+        assert!(scene.contains("paused"));
     }
 }
