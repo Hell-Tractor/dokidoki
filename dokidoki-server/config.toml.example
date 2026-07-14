@@ -25,10 +25,34 @@ allowed_types = ["image/jpeg", "image/png", "image/webp"]
 
 [chat]
 burst_silence_ms = 2000
-min_reply_delay_ms = 300
-max_reply_delay_ms = 800
 bubble_delay_base_ms = 400
 bubble_delay_per_char_ms = 50
+
+# M-15 忙碌回复延迟：reply_wait = sample(availability) × reply_delay_factor × jitter
+# reply_delay_factor 来自角色 persona_json.reply_delay_factor（[min, max]），缺省 1.0
+# 最终不超过当前活动段剩余时长。时间单位均为秒。
+[chat.reply_delay]
+# high：空闲，短延迟
+high_min_secs = 0.3
+high_max_secs = 2.0
+# medium：一般忙碌
+medium_min_secs = 30.0
+medium_max_secs = 300.0
+# low：很忙，三段加权抽样（short / mid / long）
+low_short_min_secs = 60.0                   # 短延迟桶：uniform(min, max)
+low_short_max_secs = 300.0
+low_mid_min_secs = 300.0                    # 中延迟桶：uniform(min, 活动剩余)
+low_mid_default_remaining_secs = 600.0      # 无 activity_ends_at 时用的默认活动剩余
+low_mid_cap_min_secs = 300.0                # 对活动剩余做 clamp 的下限
+low_mid_cap_max_secs = 3600.0               # 对活动剩余做 clamp 的上限
+low_long_default_remaining_secs = 300.0     # 长延迟桶：等到活动结束；无 ends_at 时的默认值
+low_long_clamp_min_secs = 60.0              # 长延迟结果 clamp 下限
+low_long_clamp_max_secs = 7200.0            # 长延迟结果 clamp 上限
+low_short_weight_pct = 30                   # 短延迟桶权重 %
+low_mid_weight_pct = 45                     # 中延迟桶权重 %；剩余归入长延迟桶
+# 全局抖动（角色性格系数见 persona_json.reply_delay_factor）
+jitter_min = 0.85
+jitter_max = 1.15
 
 [summary]
 trigger_turns = 80

@@ -15,12 +15,12 @@
 
 | 占位符 | 来源 | 说明 |
 |--------|------|------|
-| `{name}` | `persona_json.name` | 角色名 |
+| `{name}` | `characters.name` | 角色名 |
 | `{traits}` | `persona_json.personality_traits` | 逗号拼接 |
 | `{tone}` | `persona_json.speech_style.tone` | 语气 |
 | `{catchphrases}` | `persona_json.speech_style.catchphrases` | 口癖列表 |
 | `{forbidden}` | `persona_json.speech_style.forbidden` | 禁忌列表 |
-| `{proactive_tendency}` | `persona_json.proactive_tendency` | clingy / normal / distant |
+| `{conversation_style}` | `persona_json.conversation_style` | 对话倾向自然语言，见 T-10 |
 | `{skip_reply_tendency}` | `persona_json.conversation_behavior.skip_reply_tendency` | low / medium / high |
 | `{user_display_name}` | `users.display_name` | 用户称呼，缺省用「你」 |
 | `{user_birthday}` | `users.birthday` | 可选 |
@@ -52,7 +52,7 @@ T-01 角色核心
 + T-04 有效记忆
 + T-05 会话摘要
 + T-06 繁忙程度回复风格（按 availability 选一）
-+ T-10 性格对话倾向（按 proactive_tendency 选一）
++ T-10 性格对话倾向（`conversation_style`）
 + [场景附加，见下]
 ```
 
@@ -297,10 +297,7 @@ T-01 角色核心
 ```
 【场景：话题收尾中】
 你刚才已经说了要离开/等下聊（END_TOPIC）。用户在回应告别。
-- 若用户发「好的」「拜拜」「嗯嗯」「去吧」等告别语：
-  - distant 性格：大概率 [NO_REPLY]，让对话自然结束
-  - normal：可 [NO_REPLY] 或回一句极简的「嗯」「拜拜」
-  - clingy：更可能再回一句不舍或撒娇的话，再结束
+- 若用户发「好的」「拜拜」「嗯嗯」「去吧」等告别语：结合【性格倾向】决定是 [NO_REPLY] 还是再回一句极简告别
 - 若用户发起新话题（实质性内容），正常 [REPLY]，当作新对话开始
 ```
 
@@ -308,27 +305,11 @@ T-01 角色核心
 
 ### T-10 性格对话倾向
 
-按 `{proactive_tendency}` 选择。
-
-**clingy**：
+有 `conversation_style` 时注入；空则省略整段。
 
 ```
-【性格倾向 — 粘人】
-你比较在意对方，容易主动关心，较少使用 [NO_REPLY]。结束话题时可能舍不得，多回一句。
-```
-
-**normal**：
-
-```
-【性格倾向 — 普通】
-回复频率和热情程度适中，该不回的时候可以不回。
-```
-
-**distant**：
-
-```
-【性格倾向 — 冷淡】
-你不太主动，较常使用 [NO_REPLY]。告别后倾向于直接结束，不多废话。
+【性格倾向】
+{conversation_style}
 ```
 
 ---
@@ -367,7 +348,7 @@ T-01 角色核心
 ```
 【主动场景：每日问候】
 这是你今天第一次向对方问候（早安/起了吗等）。
-时间应在起床后的自然时段。clingy 更热情，distant 可极简或省略。
+时间应在起床后的自然时段。语气符合【性格倾向】。
 ```
 
 `{proactive_trigger}` = `daily_greeting`
@@ -379,7 +360,7 @@ T-01 角色核心
 ```
 【主动场景：沉默唤醒】
 对方已经很久没回消息了，你主动找他说话。
-语气符合性格：clingy 可撒娇抱怨，distant 可冷淡问一句。
+语气符合【性格倾向】。
 不要质问或道德绑架。
 ```
 

@@ -1,8 +1,8 @@
-use serde_json::Value;
 use sqlx::MySqlPool;
 
 use crate::{
     db::{models::Conversation, queries::{characters, conversations, memories, messages, users}},
+    domain::persona::Persona,
     error::AppError,
     llm::{ChatRequest, LlmMessage},
     prompt::{
@@ -13,7 +13,7 @@ use crate::{
 };
 
 struct PromptContext {
-    persona_json: Value,
+    persona: Persona,
     character_name: String,
     user_display_name: String,
     current_state: Option<CurrentStatePrompt>,
@@ -32,7 +32,7 @@ pub async fn build_chat_request(
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
 
     let system = build_system_prompt(
-        &ctx.persona_json,
+        &ctx.persona,
         &ctx.character_name,
         &ctx.user_display_name,
         ctx.current_state.as_ref(),
@@ -91,7 +91,7 @@ pub async fn build_icebreaker_request(
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
 
     let system = build_icebreaker_system_prompt(
-        &ctx.persona_json,
+        &ctx.persona,
         &ctx.character_name,
         &ctx.user_display_name,
         ctx.current_state.as_ref(),
@@ -142,9 +142,9 @@ async fn load_prompt_context(
         .await?
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
-    let persona_json = characters::find_persona_json(pool, &conversation.character_id)
+    let persona = characters::find_persona(pool, &conversation.character_id)
         .await?
-        .unwrap_or_else(|| serde_json::json!({}));
+        .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
     let current_state = schedule::load_current_state_for_prompt(pool, &conversation.character_id)
         .await
@@ -168,7 +168,7 @@ async fn load_prompt_context(
         .and_then(|fields| fields.summary);
 
     Ok(PromptContext {
-        persona_json,
+        persona,
         character_name: character.name,
         user_display_name: user.display_name,
         current_state,

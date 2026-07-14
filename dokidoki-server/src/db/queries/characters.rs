@@ -35,11 +35,11 @@ pub async fn list_character_ids(pool: &MySqlPool) -> Result<Vec<String>, AppErro
     Ok(ids)
 }
 
-pub async fn find_persona_json(
+pub async fn find_persona(
     pool: &MySqlPool,
     id: &str,
-) -> Result<Option<serde_json::Value>, AppError> {
-    let persona = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+) -> Result<Option<crate::domain::persona::Persona>, AppError> {
+    let raw = sqlx::query_scalar::<_, Option<serde_json::Value>>(
         r#"
         SELECT persona_json
         FROM characters
@@ -52,7 +52,15 @@ pub async fn find_persona_json(
     .map_err(AppError::from_db)?
     .flatten();
 
-    Ok(persona)
+    match raw {
+        None => Ok(None),
+        Some(value) => crate::domain::persona::Persona::from_json_value(value)
+            .map(Some)
+            .map_err(|err| {
+                tracing::warn!(character_id = %id, "invalid persona_json: {err}");
+                AppError::internal(err)
+            }),
+    }
 }
 
 pub async fn find_schedule_json(

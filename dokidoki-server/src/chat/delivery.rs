@@ -113,10 +113,9 @@ mod tests {
     fn bubble_delay_scales_with_length() {
         let config = Chat {
             burst_silence_ms: 1,
-            min_reply_delay_ms: 1,
-            max_reply_delay_ms: 1,
             bubble_delay_base_ms: 400,
             bubble_delay_per_char_ms: 50,
+            reply_delay: crate::config::ReplyDelay::for_test(),
         };
         assert_eq!(bubble_delay_ms(&config, "你好"), 500);
         assert_eq!(bubble_delay_ms(&config, ""), 400);

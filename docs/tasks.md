@@ -135,7 +135,7 @@
 
 ### M-15 忙碌时回复延迟（P1，已完成）
 
-- [x] 基于 availability + `proactive_tendency` + jitter 计算 `reply_wait`
+- [x] 基于 availability + `reply_delay_factor` + jitter 计算 `reply_wait`
 - [x] 活动段剩余时长上限
 - [x] `reply_wait` 等待期间不显示 typing / 已读（已读由 M-17 实现）
 

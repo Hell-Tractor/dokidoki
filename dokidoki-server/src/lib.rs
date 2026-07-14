@@ -11,6 +11,7 @@ pub mod state;
 pub mod summary;
 pub mod time;
 pub mod upload;
+pub mod utils;
 pub mod ws_hub;
 
 pub(crate) mod db;

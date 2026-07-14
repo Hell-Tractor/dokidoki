@@ -1,6 +1,5 @@
-use serde_json::Value;
-
 use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T19};
+use crate::domain::persona::Persona;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentStatePrompt {
@@ -13,36 +12,18 @@ pub struct CurrentStatePrompt {
 }
 
 pub fn build_system_prompt(
-    persona: &Value,
+    persona: &Persona,
     character_name: &str,
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
     memories: &[String],
     summary: Option<&str>,
 ) -> String {
-    let name = persona
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or(character_name);
-    let traits = join_string_array(persona.get("personality_traits"), "、");
-    let tone = nested_str(persona, &["speech_style", "tone"]);
-    let catchphrases = join_string_array(
-        persona
-            .get("speech_style")
-            .and_then(|v| v.get("catchphrases")),
-        "、",
-    );
-    let forbidden = join_string_array(
-        persona
-            .get("speech_style")
-            .and_then(|v| v.get("forbidden")),
-        "、",
-    );
-    let skip_reply_tendency = persona
-        .get("conversation_behavior")
-        .and_then(|v| v.get("skip_reply_tendency"))
-        .and_then(Value::as_str)
-        .unwrap_or("medium");
+    let traits = persona.traits_joined("、");
+    let tone = persona.speech_style.tone.as_str();
+    let catchphrases = persona.catchphrases_joined("、");
+    let forbidden = persona.forbidden_joined("、");
+    let skip_reply_tendency = persona.conversation_behavior.skip_reply_tendency.as_str();
     let user_display_name = if user_display_name.trim().is_empty() {
         "你"
     } else {
@@ -50,9 +31,9 @@ pub fn build_system_prompt(
     };
 
     let t01 = T01
-        .replace("{name}", name)
+        .replace("{name}", character_name)
         .replace("{traits}", &traits)
-        .replace("{tone}", &tone)
+        .replace("{tone}", tone)
         .replace("{catchphrases}", &catchphrases)
         .replace("{forbidden}", &forbidden)
         .replace("{user_display_name}", user_display_name);
@@ -66,6 +47,14 @@ pub fn build_system_prompt(
     parts.push(format_memories_block(user_display_name, memories));
     if let Some(summary) = summary.filter(|value| !value.is_empty()) {
         parts.push(format_summary_block(summary));
+    }
+    if let Some(style) = persona
+        .conversation_style
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(format!("【性格倾向】\n{style}"));
     }
     parts.join("\n\n")
 }
@@ -91,7 +80,7 @@ pub fn format_memories_block(user_display_name: &str, memories: &[String]) -> St
 }
 
 pub fn build_icebreaker_system_prompt(
-    persona: &Value,
+    persona: &Persona,
     character_name: &str,
     user_display_name: &str,
     current_state: Option<&CurrentStatePrompt>,
@@ -127,49 +116,30 @@ pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
         .replace("{random_event_block}", random_event_block.trim_end())
 }
 
-fn nested_str(value: &Value, path: &[&str]) -> String {
-    let mut current = value;
-    for key in path {
-        current = match current.get(*key) {
-            Some(v) => v,
-            None => return String::new(),
-        };
-    }
-    current.as_str().unwrap_or_default().to_owned()
-}
-
-fn join_string_array(value: Option<&Value>, sep: &str) -> String {
-    match value.and_then(Value::as_array) {
-        Some(items) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(sep),
-        None => String::new(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::domain::persona::{ConversationBehavior, Persona, SpeechStyle};
+
+    fn persona_fixture() -> Persona {
+        Persona {
+            personality_traits: vec!["黏人".into(), "撒娇".into()],
+            speech_style: SpeechStyle {
+                tone: "甜美".into(),
+                catchphrases: vec!["哥哥".into()],
+                forbidden: vec!["像客服一样说话".into()],
+            },
+            conversation_behavior: ConversationBehavior {
+                skip_reply_tendency: "low".into(),
+                ..ConversationBehavior::default()
+            },
+            ..Persona::default()
+        }
+    }
 
     #[test]
-    fn builds_prompt_from_persona_json() {
-        let persona = json!({
-            "name": "小爱",
-            "personality_traits": ["黏人", "撒娇"],
-            "speech_style": {
-                "tone": "甜美",
-                "catchphrases": ["哥哥"],
-                "forbidden": ["像客服一样说话"]
-            },
-            "conversation_behavior": {
-                "skip_reply_tendency": "low"
-            }
-        });
-
-        let prompt = build_system_prompt(&persona, "默认名", "阿明", None, &[], None);
+    fn builds_prompt_from_persona() {
+        let prompt = build_system_prompt(&persona_fixture(), "小爱", "阿明", None, &[], None);
 
         assert!(prompt.contains("你是 小爱"));
         assert!(prompt.contains("黏人、撒娇"));
@@ -179,8 +149,8 @@ mod tests {
     }
 
     #[test]
-    fn uses_fallbacks_for_empty_persona() {
-        let prompt = build_system_prompt(&json!({}), "小咲", "", None, &[], None);
+    fn empty_user_display_name_falls_back_to_ni() {
+        let prompt = build_system_prompt(&Persona::default(), "小咲", "", None, &[], None);
 
         assert!(prompt.contains("你是 小咲"));
         assert!(prompt.contains("你称呼对方为「你」"));
@@ -196,7 +166,7 @@ mod tests {
             availability: "low".into(),
             random_event: Some("电脑坏了".into()),
         };
-        let prompt = build_system_prompt(&json!({}), "小咲", "阿明", Some(&state), &[], None);
+        let prompt = build_system_prompt(&Persona::default(), "小咲", "阿明", Some(&state), &[], None);
 
         assert!(prompt.contains("【当前状态】"));
         assert!(prompt.contains("你正在：工作"));
@@ -240,8 +210,17 @@ mod tests {
 
     #[test]
     fn icebreaker_prompt_includes_t19() {
-        let prompt = build_icebreaker_system_prompt(&json!({}), "小咲", "阿明", None);
+        let prompt = build_icebreaker_system_prompt(&Persona::default(), "小咲", "阿明", None);
         assert!(prompt.contains("【场景：第一次见面】"));
         assert!(prompt.contains("你第一次和 阿明 说话"));
+    }
+
+    #[test]
+    fn injects_conversation_style_when_present() {
+        let mut persona = Persona::default();
+        persona.conversation_style = Some("比较在意对方".into());
+        let prompt = build_system_prompt(&persona, "小咲", "阿明", None, &[], None);
+        assert!(prompt.contains("【性格倾向】"));
+        assert!(prompt.contains("比较在意对方"));
     }
 }

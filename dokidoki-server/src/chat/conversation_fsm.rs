@@ -40,7 +40,7 @@ pub enum UserMessageDecision {
 pub fn on_user_message(
     current_status: ConversationStatus,
     message: &str,
-    proactive_tendency: &str,
+    pause_on_farewell: bool,
 ) -> UserMessageDecision {
     let substantive = is_substantive(message);
     let farewell = is_farewell(message);
@@ -52,7 +52,7 @@ pub fn on_user_message(
                 UserMessageDecision::CallLlm {
                     status: Some(ConversationStatus::Active),
                 }
-            } else if farewell && should_pause_after_farewell(proactive_tendency) {
+            } else if farewell && pause_on_farewell {
                 UserMessageDecision::PauseWithoutReply
             } else {
                 UserMessageDecision::CallLlm { status: None }
@@ -76,10 +76,6 @@ pub fn status_after_llm_action(action: super::parser::LlmAction) -> Option<Conve
         super::parser::LlmAction::EndTopic(_) => Some(ConversationStatus::WindingDown),
         super::parser::LlmAction::NoReply | super::parser::LlmAction::Reply(_) => None,
     }
-}
-
-fn should_pause_after_farewell(proactive_tendency: &str) -> bool {
-    !matches!(proactive_tendency, "clingy")
 }
 
 pub fn is_farewell(message: &str) -> bool {
@@ -107,7 +103,7 @@ mod tests {
 
     #[test]
     fn paused_resumes_on_substantive_message() {
-        let decision = on_user_message(ConversationStatus::Paused, "今天好累啊", "normal");
+        let decision = on_user_message(ConversationStatus::Paused, "今天好累啊", true);
         assert_eq!(
             decision,
             UserMessageDecision::CallLlm {
@@ -118,19 +114,25 @@ mod tests {
 
     #[test]
     fn paused_ignores_short_farewell() {
-        let decision = on_user_message(ConversationStatus::Paused, "嗯", "normal");
+        let decision = on_user_message(ConversationStatus::Paused, "嗯", true);
         assert_eq!(decision, UserMessageDecision::IgnoreWhilePaused);
     }
 
     #[test]
-    fn winding_down_farewell_moves_to_paused_for_distant() {
-        let decision = on_user_message(ConversationStatus::WindingDown, "拜拜", "distant");
+    fn winding_down_farewell_pauses_when_configured() {
+        let decision = on_user_message(ConversationStatus::WindingDown, "拜拜", true);
         assert_eq!(decision, UserMessageDecision::PauseWithoutReply);
     }
 
     #[test]
+    fn winding_down_farewell_keeps_chatting_when_pause_disabled() {
+        let decision = on_user_message(ConversationStatus::WindingDown, "拜拜", false);
+        assert_eq!(decision, UserMessageDecision::CallLlm { status: None });
+    }
+
+    #[test]
     fn winding_down_substantive_resumes_active() {
-        let decision = on_user_message(ConversationStatus::WindingDown, "等等我还有事", "normal");
+        let decision = on_user_message(ConversationStatus::WindingDown, "等等我还有事", true);
         assert_eq!(
             decision,
             UserMessageDecision::CallLlm {

@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use serde_json::Value;
 use sqlx::MySqlPool;
 use tokio::sync::{watch, Mutex};
 use uuid::Uuid;
@@ -151,8 +150,6 @@ impl ChatService {
             return Ok(());
         };
 
-        burst.timer.abort();
-
         reply_scheduler::schedule(
             self,
             user_id,
@@ -222,15 +219,15 @@ impl ChatService {
                 .ok_or_else(|| AppError::not_found("消息不存在"))?;
 
         let user_content = user_message.content.unwrap_or_default();
-        let persona_json = characters::find_persona_json(&self.db, &conversation.character_id)
+        let persona = characters::find_persona(&self.db, &conversation.character_id)
             .await?
-            .unwrap_or_else(|| Value::Object(Default::default()));
-        let proactive_tendency = proactive_tendency(&persona_json);
+            .ok_or_else(|| AppError::not_found("角色不存在"))?;
+        let pause_on_farewell = persona.conversation_behavior.pause_on_farewell;
 
         let current_status = ConversationStatus::parse(&conversation.status)
             .unwrap_or(ConversationStatus::Active);
 
-        match on_user_message(current_status, &user_content, proactive_tendency) {
+        match on_user_message(current_status, &user_content, pause_on_farewell) {
             UserMessageDecision::PauseWithoutReply => {
                 self.update_conversation_status(conversation_id, ConversationStatus::Paused)
                     .await?;
@@ -401,12 +398,4 @@ impl ChatService {
         )
         .await
     }
-}
-
-fn proactive_tendency(persona: &Value) -> &str {
-    persona
-        .get("conversation_behavior")
-        .and_then(|value| value.get("proactive_tendency"))
-        .and_then(Value::as_str)
-        .unwrap_or("normal")
 }

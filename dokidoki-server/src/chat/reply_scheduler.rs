@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use rand_core::{OsRng, RngCore};
 
 use crate::{
     db::queries::{character_states, characters, conversations as conversation_queries},
@@ -12,6 +11,7 @@ use crate::{
 use super::read_receipt::sample_read_receipt_delay_ms;
 use super::reply_delay::{activity_remaining_secs, compute_reply_wait_ms, ReplyDelayInput};
 use super::ChatService;
+use crate::utils::{OsUnitRng, UnitRng};
 
 pub async fn schedule(
     chat: &Arc<ChatService>,
@@ -21,9 +21,11 @@ pub async fn schedule(
     user_message_ids: &[String],
 ) -> Result<(), AppError> {
     let ctx = load_reply_context(chat, conversation_id).await?;
-    let random_unit = (OsRng.next_u32() as f64) / (u32::MAX as f64);
-    let reply_wait_ms = compute_reply_wait_ms(&ctx, random_unit);
-    let read_delay_ms = sample_read_receipt_delay_ms(&ctx.availability, reply_wait_ms, random_unit);
+    let mut rng = OsUnitRng;
+    let reply_wait_ms =
+        compute_reply_wait_ms(&ctx, &chat.chat_config.reply_delay, &mut rng);
+    let read_delay_ms =
+        sample_read_receipt_delay_ms(&ctx.availability, reply_wait_ms, rng.next_unit());
 
     tokio::time::sleep(Duration::from_millis(read_delay_ms)).await;
     if let Err(err) = chat
@@ -91,9 +93,9 @@ async fn load_reply_context(
         .ok_or_else(|| AppError::not_found("会话不存在"))?;
 
     let state = character_states::find_reply_fields(&chat.db, &conversation.character_id).await?;
-    let persona = characters::find_persona_json(&chat.db, &conversation.character_id)
+    let persona = characters::find_persona(&chat.db, &conversation.character_id)
         .await?
-        .unwrap_or_else(|| serde_json::json!({}));
+        .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
     let availability = state
         .as_ref()
@@ -106,16 +108,10 @@ async fn load_reply_context(
         Utc::now(),
     );
 
-    let proactive_tendency = persona
-        .get("conversation_behavior")
-        .and_then(|value| value.get("proactive_tendency"))
-        .and_then(|value| value.as_str())
-        .unwrap_or("normal")
-        .to_owned();
-
     Ok(ReplyDelayInput {
         availability,
-        proactive_tendency,
+        factor_min: persona.reply_delay_factor.min,
+        factor_max: persona.reply_delay_factor.max,
         activity_remaining_secs,
     })
 }

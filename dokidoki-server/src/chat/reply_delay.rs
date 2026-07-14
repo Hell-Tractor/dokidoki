@@ -1,16 +1,28 @@
 use chrono::{DateTime, Utc};
 
+use crate::{
+    config::ReplyDelay,
+    utils::{uniform, UnitRng},
+};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplyDelayInput {
     pub availability: String,
-    pub proactive_tendency: String,
+    /// 角色 `persona.reply_delay_factor` 区间；缺省为 1.0–1.0
+    pub factor_min: f64,
+    pub factor_max: f64,
     pub activity_remaining_secs: Option<f64>,
 }
 
-pub fn compute_reply_wait_ms(input: &ReplyDelayInput, random_unit: f64) -> u64 {
-    let base_secs = sample_availability_secs(&input.availability, input.activity_remaining_secs, random_unit);
-    let factor = personality_factor(&input.proactive_tendency, random_unit);
-    let jitter = jitter_factor(random_unit);
+pub fn compute_reply_wait_ms(
+    input: &ReplyDelayInput,
+    config: &ReplyDelay,
+    rng: &mut impl UnitRng,
+) -> u64 {
+    let base_secs =
+        sample_availability_secs(&input.availability, input.activity_remaining_secs, config, rng);
+    let factor = uniform(input.factor_min, input.factor_max, rng.next_unit());
+    let jitter = uniform(config.jitter_min, config.jitter_max, rng.next_unit());
     let mut secs = base_secs * factor * jitter;
 
     if let Some(cap) = input.activity_remaining_secs {
@@ -23,44 +35,46 @@ pub fn compute_reply_wait_ms(input: &ReplyDelayInput, random_unit: f64) -> u64 {
 fn sample_availability_secs(
     availability: &str,
     activity_remaining_secs: Option<f64>,
-    random_unit: f64,
+    config: &ReplyDelay,
+    rng: &mut impl UnitRng,
 ) -> f64 {
     match availability {
-        "high" => uniform(0.3, 2.0, random_unit),
-        "low" => sample_low_secs(activity_remaining_secs, random_unit),
-        _ => uniform(30.0, 300.0, random_unit),
+        "high" => uniform(config.high_min_secs, config.high_max_secs, rng.next_unit()),
+        "low" => sample_low_secs(activity_remaining_secs, config, rng),
+        _ => uniform(config.medium_min_secs, config.medium_max_secs, rng.next_unit()),
     }
 }
 
-fn sample_low_secs(activity_remaining_secs: Option<f64>, random_unit: f64) -> f64 {
-    let bucket = (random_unit * 100.0).floor() as u32 % 100;
-    if bucket < 30 {
-        uniform(60.0, 300.0, random_unit)
-    } else if bucket < 75 {
-        let cap = activity_remaining_secs.unwrap_or(600.0).clamp(300.0, 3600.0);
-        uniform(300.0, cap, random_unit)
+fn sample_low_secs(
+    activity_remaining_secs: Option<f64>,
+    config: &ReplyDelay,
+    rng: &mut impl UnitRng,
+) -> f64 {
+    let bucket_unit = rng.next_unit();
+    let value_unit = rng.next_unit();
+    let bucket = (bucket_unit * 100.0).floor() as u32 % 100;
+    let short_cut = config.low_short_weight_pct;
+    let mid_cut = short_cut.saturating_add(config.low_mid_weight_pct);
+
+    if bucket < short_cut {
+        uniform(
+            config.low_short_min_secs,
+            config.low_short_max_secs,
+            value_unit,
+        )
+    } else if bucket < mid_cut {
+        let cap = activity_remaining_secs
+            .unwrap_or(config.low_mid_default_remaining_secs)
+            .clamp(config.low_mid_cap_min_secs, config.low_mid_cap_max_secs);
+        uniform(config.low_mid_min_secs, cap, value_unit)
     } else {
-        activity_remaining_secs.unwrap_or(300.0).clamp(60.0, 3600.0)
+        activity_remaining_secs
+            .unwrap_or(config.low_long_default_remaining_secs)
+            .clamp(
+                config.low_long_clamp_min_secs,
+                config.low_long_clamp_max_secs,
+            )
     }
-}
-
-fn personality_factor(tendency: &str, random_unit: f64) -> f64 {
-    match tendency {
-        "clingy" => uniform(0.5, 0.7, random_unit),
-        "distant" => uniform(1.3, 1.6, random_unit),
-        _ => 1.0,
-    }
-}
-
-fn jitter_factor(random_unit: f64) -> f64 {
-    uniform(0.85, 1.15, random_unit)
-}
-
-fn uniform(min: f64, max: f64, random_unit: f64) -> f64 {
-    if min >= max {
-        return min;
-    }
-    min + random_unit * (max - min)
 }
 
 pub fn activity_remaining_secs(activity_ends_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Option<f64> {
@@ -73,41 +87,71 @@ pub fn activity_remaining_secs(activity_ends_at: Option<DateTime<Utc>>, now: Dat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::ScriptedRng;
 
-    fn input(availability: &str, tendency: &str, remaining: Option<f64>) -> ReplyDelayInput {
+    fn production_config() -> ReplyDelay {
+        ReplyDelay::production_defaults()
+    }
+
+    fn input(
+        availability: &str,
+        factor_min: f64,
+        factor_max: f64,
+        remaining: Option<f64>,
+    ) -> ReplyDelayInput {
         ReplyDelayInput {
             availability: availability.into(),
-            proactive_tendency: tendency.into(),
+            factor_min,
+            factor_max,
             activity_remaining_secs: remaining,
         }
     }
 
     #[test]
     fn high_availability_reply_is_short() {
-        let ms = compute_reply_wait_ms(&input("high", "normal", None), 0.0);
-        // 0.3s base × 1.0 factor × 0.85 jitter
+        // base=0.0 → 0.3s, factor=0.0 → 1.0, jitter=0.0 → 0.85
+        let mut rng = ScriptedRng::new(vec![0.0, 0.0, 0.0]);
+        let ms = compute_reply_wait_ms(&input("high", 1.0, 1.0, None), &production_config(), &mut rng);
         assert!(ms >= 250);
         assert!(ms <= 2_300);
     }
 
     #[test]
     fn medium_availability_reply_is_longer() {
-        let ms = compute_reply_wait_ms(&input("medium", "normal", None), 0.0);
-        // 30s base × 1.0 factor × 0.85 jitter
+        let mut rng = ScriptedRng::new(vec![0.0, 0.0, 0.0]);
+        let ms = compute_reply_wait_ms(&input("medium", 1.0, 1.0, None), &production_config(), &mut rng);
         assert!(ms >= 25_000);
         assert!(ms <= 345_000);
     }
 
     #[test]
-    fn distant_personality_increases_delay() {
-        let normal = compute_reply_wait_ms(&input("high", "normal", None), 0.5);
-        let distant = compute_reply_wait_ms(&input("high", "distant", None), 0.5);
-        assert!(distant > normal);
+    fn higher_factor_increases_delay() {
+        let cfg = production_config();
+        let mut fast_rng = ScriptedRng::new(vec![0.5, 0.5, 0.5]);
+        let mut slow_rng = ScriptedRng::new(vec![0.5, 0.5, 0.5]);
+        let fast = compute_reply_wait_ms(&input("high", 0.5, 0.7, None), &cfg, &mut fast_rng);
+        let slow = compute_reply_wait_ms(&input("high", 1.3, 1.6, None), &cfg, &mut slow_rng);
+        assert!(slow > fast);
     }
 
     #[test]
     fn caps_delay_by_activity_remaining() {
-        let ms = compute_reply_wait_ms(&input("medium", "normal", Some(10.0)), 0.9);
+        let mut rng = ScriptedRng::new(vec![0.9, 0.9, 0.9]);
+        let ms = compute_reply_wait_ms(
+            &input("medium", 1.0, 1.0, Some(10.0)),
+            &production_config(),
+            &mut rng,
+        );
         assert!(ms <= 10_000);
+    }
+
+    #[test]
+    fn low_bucket_and_value_use_independent_draws() {
+        // bucket=0.1 → short; value=0.0 → min (60s); factor/jitter fixed at mid
+        let mut low_value = ScriptedRng::new(vec![0.1, 0.0, 0.5, 0.5]);
+        let mut high_value = ScriptedRng::new(vec![0.1, 1.0, 0.5, 0.5]);
+        let low = compute_reply_wait_ms(&input("low", 1.0, 1.0, None), &production_config(), &mut low_value);
+        let high = compute_reply_wait_ms(&input("low", 1.0, 1.0, None), &production_config(), &mut high_value);
+        assert!(high > low);
     }
 }

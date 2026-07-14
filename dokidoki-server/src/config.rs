@@ -1,4 +1,4 @@
-use serde::{Deserialize};
+use serde::Deserialize;
 
 use crate::error::Result;
 
@@ -51,10 +51,9 @@ impl Config {
             },
             chat: Chat {
                 burst_silence_ms: 1,
-                min_reply_delay_ms: 1,
-                max_reply_delay_ms: 1,
                 bubble_delay_base_ms: 1,
                 bubble_delay_per_char_ms: 1,
+                reply_delay: ReplyDelay::for_test(),
             },
             summary: Summary {
                 trigger_turns: 80,
@@ -108,10 +107,79 @@ pub struct Upload {
 #[derive(Clone, Deserialize)]
 pub struct Chat {
     pub burst_silence_ms: u32,
-    pub min_reply_delay_ms: u32,
-    pub max_reply_delay_ms: u32,
     pub bubble_delay_base_ms: u32,
     pub bubble_delay_per_char_ms: u32,
+    pub reply_delay: ReplyDelay,
+}
+
+/// M-15 忙碌回复延迟参数（秒 / 系数），对应 `docs/详细设计说明书.md` §8。
+#[derive(Clone, Deserialize)]
+pub struct ReplyDelay {
+    pub high_min_secs: f64,
+    pub high_max_secs: f64,
+    pub medium_min_secs: f64,
+    pub medium_max_secs: f64,
+    pub low_short_min_secs: f64,
+    pub low_short_max_secs: f64,
+    pub low_mid_min_secs: f64,
+    pub low_mid_default_remaining_secs: f64,
+    pub low_mid_cap_min_secs: f64,
+    pub low_mid_cap_max_secs: f64,
+    pub low_long_default_remaining_secs: f64,
+    pub low_long_clamp_min_secs: f64,
+    pub low_long_clamp_max_secs: f64,
+    /// low 短延迟桶权重（百分比，如 30 表示 30%）
+    pub low_short_weight_pct: u32,
+    /// low 中延迟桶权重（百分比）；剩余归入长延迟桶
+    pub low_mid_weight_pct: u32,
+    pub jitter_min: f64,
+    pub jitter_max: f64,
+}
+
+impl ReplyDelay {
+    pub fn production_defaults() -> Self {
+        Self {
+            high_min_secs: 0.3,
+            high_max_secs: 2.0,
+            medium_min_secs: 30.0,
+            medium_max_secs: 300.0,
+            low_short_min_secs: 60.0,
+            low_short_max_secs: 300.0,
+            low_mid_min_secs: 300.0,
+            low_mid_default_remaining_secs: 600.0,
+            low_mid_cap_min_secs: 300.0,
+            low_mid_cap_max_secs: 3600.0,
+            low_long_default_remaining_secs: 300.0,
+            low_long_clamp_min_secs: 60.0,
+            low_long_clamp_max_secs: 3600.0,
+            low_short_weight_pct: 30,
+            low_mid_weight_pct: 45,
+            jitter_min: 0.85,
+            jitter_max: 1.15,
+        }
+    }
+
+    pub fn for_test() -> Self {
+        Self {
+            high_min_secs: 0.0,
+            high_max_secs: 0.0,
+            medium_min_secs: 0.0,
+            medium_max_secs: 0.0,
+            low_short_min_secs: 0.0,
+            low_short_max_secs: 0.0,
+            low_mid_min_secs: 0.0,
+            low_mid_default_remaining_secs: 0.0,
+            low_mid_cap_min_secs: 0.0,
+            low_mid_cap_max_secs: 0.0,
+            low_long_default_remaining_secs: 0.0,
+            low_long_clamp_min_secs: 0.0,
+            low_long_clamp_max_secs: 0.0,
+            low_short_weight_pct: 30,
+            low_mid_weight_pct: 45,
+            jitter_min: 1.0,
+            jitter_max: 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
