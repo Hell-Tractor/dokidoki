@@ -1,4 +1,6 @@
-use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T18, T19};
+use super::templates::{
+    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T18, T19, T21,
+};
 use crate::domain::persona::Persona;
 use crate::domain::Availability;
 
@@ -100,13 +102,24 @@ pub fn format_icebreaker_user_message() -> &'static str {
     "（系统）请发起初次对话。"
 }
 
-/// 主动消息场景附加（System 后半）；按触发类型拼接 T-13～T-18。
+/// 主动消息场景附加（System 后半）；按触发类型拼接 T-13～T-21。
 pub fn format_proactive_scene(
     trigger: &str,
     special_date_detail: Option<&str>,
+    ask_user_busy_care: bool,
 ) -> String {
     let mut parts = Vec::new();
     match trigger {
+        "pre_sleep" => {
+            parts.push(T21.to_owned());
+            if ask_user_busy_care {
+                parts.push(
+                    "【附加关心】你们因你去忙而中断过。可按性格决定是否轻轻问对方忙完了没；\
+                     不要盘问，一句带过即可，晚安仍是主线。"
+                        .into(),
+                );
+            }
+        }
         "daily_greeting" => {
             parts.push(T13.to_owned());
             if let Some(detail) = special_date_detail.filter(|d| !d.is_empty()) {
@@ -255,11 +268,12 @@ mod tests {
 
     #[test]
     fn proactive_daily_greeting_scene_includes_t13_and_optional_t18() {
-        let scene = format_proactive_scene("daily_greeting", None);
+        let scene = format_proactive_scene("daily_greeting", None, false);
         assert!(scene.contains("每日问候"));
         assert!(!scene.contains("特殊日期"));
 
-        let with_special = format_proactive_scene("daily_greeting", Some("对方生日（07-11）"));
+        let with_special =
+            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false);
         assert!(with_special.contains("每日问候"));
         assert!(with_special.contains("特殊日期"));
         assert!(with_special.contains("对方生日（07-11）"));
@@ -267,15 +281,27 @@ mod tests {
 
     #[test]
     fn proactive_re_engage_scene_uses_t15() {
-        let scene = format_proactive_scene("re_engage", None);
+        let scene = format_proactive_scene("re_engage", None, false);
         assert!(scene.contains("话题重启"));
         assert!(scene.contains("paused"));
     }
 
     #[test]
     fn proactive_silence_wake_scene_uses_t14() {
-        let scene = format_proactive_scene("silence_wake", None);
+        let scene = format_proactive_scene("silence_wake", None, false);
         assert!(scene.contains("沉默唤醒"));
         assert!(scene.contains("很久没回"));
+    }
+
+    #[test]
+    fn proactive_pre_sleep_scene_uses_t21_and_optional_care() {
+        let scene = format_proactive_scene("pre_sleep", None, false);
+        assert!(scene.contains("睡前晚安"));
+        assert!(!scene.contains("附加关心"));
+
+        let with_care = format_proactive_scene("pre_sleep", None, true);
+        assert!(with_care.contains("睡前晚安"));
+        assert!(with_care.contains("附加关心"));
+        assert!(with_care.contains("忙完"));
     }
 }

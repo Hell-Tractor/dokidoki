@@ -252,6 +252,109 @@ pub fn in_daily_greeting_window(
     status.minutes_into_slot < window
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreSleepStatus {
+    pub minutes_until_sleep: u32,
+    /// 即将开始的 sleep 段所属本地日（用于每日一次统计）。
+    pub sleep_local_date: NaiveDate,
+}
+
+/// 睡前窗长度（分钟），落在 `[window_min, window_max]`。
+pub(crate) fn pre_sleep_window_mins(
+    character_id: &str,
+    local_date: NaiveDate,
+    window_min: u32,
+    window_max: u32,
+) -> u32 {
+    let min = window_min.min(window_max);
+    let max = window_min.max(window_max);
+    if min == max {
+        return min;
+    }
+    let unit = deterministic_unit(character_id, local_date, "pre_sleep_window");
+    min + ((unit * f64::from(max - min + 1)) as u32).min(max - min)
+}
+
+/// 若即将切入 `kind=sleep`（且当前不在 sleep 内）则返回距 sleep 开始的分钟数。
+pub fn upcoming_pre_sleep(
+    schedule: &Schedule,
+    now: DateTime<Utc>,
+) -> Result<Option<PreSleepStatus>, AppError> {
+    let tz = parse_timezone(&schedule.timezone)?;
+    let local = now.with_timezone(&tz);
+    let local_date = local.date_naive();
+    let local_time = local.time();
+
+    let today_key = weekday_template_key(local.weekday());
+    let today_slots = day_slots(&schedule.weekly_template, today_key)?;
+    if let Some(current) = find_matching_slot(today_slots, local_time) {
+        if current.kind == SlotKind::Sleep {
+            return Ok(None);
+        }
+    }
+
+    let Some((sleep_start_local, sleep_date)) =
+        next_sleep_start(schedule, &tz, local_date, local_time)?
+    else {
+        return Ok(None);
+    };
+
+    let minutes = (sleep_start_local - local)
+        .num_minutes()
+        .max(0) as u32;
+
+    Ok(Some(PreSleepStatus {
+        minutes_until_sleep: minutes,
+        sleep_local_date: sleep_date,
+    }))
+}
+
+/// 是否落在 sleep 开始前的随机短窗内。
+pub fn in_pre_sleep_window(
+    status: &PreSleepStatus,
+    character_id: &str,
+    window_min: u32,
+    window_max: u32,
+) -> bool {
+    let window = pre_sleep_window_mins(
+        character_id,
+        status.sleep_local_date,
+        window_min,
+        window_max,
+    );
+    status.minutes_until_sleep < window
+}
+
+/// 在今日与明日模板中找下一场尚未开始的 sleep。
+fn next_sleep_start(
+    schedule: &Schedule,
+    tz: &Tz,
+    local_date: NaiveDate,
+    local_time: NaiveTime,
+) -> Result<Option<(chrono::DateTime<Tz>, NaiveDate)>, AppError> {
+    for day_offset in 0i64..=1 {
+        let date = local_date + chrono::Duration::days(day_offset);
+        let weekday = date.weekday();
+        let key = weekday_template_key(weekday);
+        let slots = day_slots(&schedule.weekly_template, key)?;
+        for slot in slots {
+            if slot.kind != SlotKind::Sleep {
+                continue;
+            }
+            let start_local = tz
+                .from_local_datetime(&date.and_time(slot.start))
+                .single()
+                .ok_or_else(|| AppError::bad_request("无效的 sleep 开始时间"))?;
+            // 今日：仅取 start > now；明日：整场可用。
+            if day_offset == 0 && slot.start <= local_time {
+                continue;
+            }
+            return Ok(Some((start_local, date)));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +469,27 @@ mod tests {
             daily_greeting_window_mins("char-x", date, 30, 60),
             daily_greeting_window_mins("char-x", date, 30, 60)
         );
+    }
+
+    #[test]
+    fn pre_sleep_detects_minutes_until_sleep() {
+        let schedule = sample_schedule();
+        // 2026-07-13 Monday 22:20 Asia/Shanghai = 14:20 UTC → 10 min until 22:30 sleep
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 14, 20, 0).unwrap();
+        let status = upcoming_pre_sleep(&schedule, now).unwrap().unwrap();
+        assert_eq!(status.minutes_until_sleep, 10);
+        assert_eq!(
+            status.sleep_local_date,
+            NaiveDate::from_ymd_opt(2026, 7, 13).unwrap()
+        );
+        assert!(in_pre_sleep_window(&status, "char-1", 10, 30));
+    }
+
+    #[test]
+    fn pre_sleep_none_while_already_asleep() {
+        let schedule = sample_schedule();
+        // 23:00 Asia/Shanghai = 15:00 UTC Monday → in overnight sleep
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 15, 0, 0).unwrap();
+        assert!(upcoming_pre_sleep(&schedule, now).unwrap().is_none());
     }
 }

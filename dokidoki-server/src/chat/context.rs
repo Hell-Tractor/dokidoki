@@ -113,7 +113,7 @@ pub async fn build_icebreaker_request(
     })
 }
 
-/// 主动消息 Prompt（T-01～T-05 + 场景 T-13/T-18… + User T-12）。
+/// 主动消息 Prompt（T-01～T-05 + 场景 T-13/T-18/T-21… + User T-12）。
 pub async fn build_proactive_request(
     pool: &MySqlPool,
     user_id: &str,
@@ -122,6 +122,7 @@ pub async fn build_proactive_request(
     trigger: &str,
     keep_recent_turns: u32,
     special_date_detail: Option<&str>,
+    ask_user_busy_care: bool,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
@@ -135,7 +136,11 @@ pub async fn build_proactive_request(
         ctx.summary.as_deref(),
     );
     system.push_str("\n\n");
-    system.push_str(&format_proactive_scene(trigger, special_date_detail));
+    system.push_str(&format_proactive_scene(
+        trigger,
+        special_date_detail,
+        ask_user_busy_care,
+    ));
 
     let recent =
         messages::list_text_messages_for_recent_turns(pool, conversation_id, keep_recent_turns)

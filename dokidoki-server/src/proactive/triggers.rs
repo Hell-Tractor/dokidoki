@@ -8,6 +8,7 @@ use crate::domain::{Availability, ConversationStatus};
 /// 触发类型（与 `proactive_logs.trigger_type` / Prompt `{proactive_trigger}` 对齐）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerType {
+    PreSleep,
     DailyGreeting,
     ReEngage,
     SilenceWake,
@@ -18,6 +19,7 @@ pub enum TriggerType {
 impl TriggerType {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::PreSleep => "pre_sleep",
             Self::DailyGreeting => "daily_greeting",
             Self::ReEngage => "re_engage",
             Self::SilenceWake => "silence_wake",
@@ -43,12 +45,21 @@ impl DailyGreetingExtras {
     }
 }
 
+/// 睡前主动附加语境。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PreSleepExtras {
+    /// 当前为 `paused_char_busy`：Prompt 可按性格叠问「忙完了吗」。
+    pub ask_user_busy_care: bool,
+}
+
 /// 触发器求值上下文（字段随各类触发落地逐步补齐）。
 #[derive(Debug, Clone)]
 pub struct TriggerContext<'a> {
     pub conversation_id: &'a str,
     pub status: ConversationStatus,
     pub availability: Availability,
+    /// 即将切入 sleep 的短窗内，且本会话角色今日尚未发过 `pre_sleep`。
+    pub pre_sleep_eligible: bool,
     /// 已在起床段问候窗内，且本会话角色今日尚未发过 `daily_greeting`。
     pub daily_greeting_eligible: bool,
     /// `paused_char_busy` / `paused_user_busy` 且各自时机条件满足。
@@ -57,9 +68,10 @@ pub struct TriggerContext<'a> {
     pub silence_wake_eligible: bool,
 }
 
-/// 按优先级取一条：daily_greeting → re_engage → silence_wake → …
+/// 按优先级取一条：pre_sleep → daily_greeting → re_engage → silence_wake → …
 pub fn select_trigger(ctx: &TriggerContext<'_>) -> Option<TriggerType> {
     for candidate in [
+        TriggerType::PreSleep,
         TriggerType::DailyGreeting,
         TriggerType::ReEngage,
         TriggerType::SilenceWake,
@@ -75,6 +87,7 @@ pub fn select_trigger(ctx: &TriggerContext<'_>) -> Option<TriggerType> {
 
 fn evaluate(trigger: TriggerType, ctx: &TriggerContext<'_>) -> bool {
     match trigger {
+        TriggerType::PreSleep => ctx.pre_sleep_eligible,
         TriggerType::DailyGreeting => ctx.daily_greeting_eligible,
         TriggerType::ReEngage => ctx.re_engage_eligible,
         TriggerType::SilenceWake => ctx.silence_wake_eligible,
@@ -168,11 +181,17 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn ctx(daily: bool, re_engage: bool, silence: bool) -> TriggerContext<'static> {
+    fn ctx(
+        pre_sleep: bool,
+        daily: bool,
+        re_engage: bool,
+        silence: bool,
+    ) -> TriggerContext<'static> {
         TriggerContext {
             conversation_id: "c1",
             status: ConversationStatus::Paused,
             availability: Availability::Medium,
+            pre_sleep_eligible: pre_sleep,
             daily_greeting_eligible: daily,
             re_engage_eligible: re_engage,
             silence_wake_eligible: silence,
@@ -182,18 +201,22 @@ mod tests {
     #[test]
     fn selects_by_priority() {
         assert_eq!(
-            select_trigger(&ctx(true, true, true)),
+            select_trigger(&ctx(true, true, true, true)),
+            Some(TriggerType::PreSleep)
+        );
+        assert_eq!(
+            select_trigger(&ctx(false, true, true, true)),
             Some(TriggerType::DailyGreeting)
         );
         assert_eq!(
-            select_trigger(&ctx(false, true, true)),
+            select_trigger(&ctx(false, false, true, true)),
             Some(TriggerType::ReEngage)
         );
         assert_eq!(
-            select_trigger(&ctx(false, false, true)),
+            select_trigger(&ctx(false, false, false, true)),
             Some(TriggerType::SilenceWake)
         );
-        assert_eq!(select_trigger(&ctx(false, false, false)), None);
+        assert_eq!(select_trigger(&ctx(false, false, false, false)), None);
     }
 
     #[test]

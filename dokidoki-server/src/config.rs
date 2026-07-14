@@ -71,6 +71,8 @@ impl Config {
                 availability_low: 0.05,
                 daily_greeting_window_min_mins: 30,
                 daily_greeting_window_max_mins: 60,
+                pre_sleep_window_min_mins: 10,
+                pre_sleep_window_max_mins: 30,
             },
         }
     }
@@ -220,6 +222,20 @@ pub struct Proactive {
     pub daily_greeting_window_min_mins: u32,
     /// 每日问候：起床段起始后触发窗上限（分钟）
     pub daily_greeting_window_max_mins: u32,
+    /// 睡前：`kind=sleep` 开始前触发窗下限（分钟）
+    #[serde(default = "default_pre_sleep_window_min")]
+    pub pre_sleep_window_min_mins: u32,
+    /// 睡前：`kind=sleep` 开始前触发窗上限（分钟）
+    #[serde(default = "default_pre_sleep_window_max")]
+    pub pre_sleep_window_max_mins: u32,
+}
+
+fn default_pre_sleep_window_min() -> u32 {
+    10
+}
+
+fn default_pre_sleep_window_max() -> u32 {
+    30
 }
 
 impl Proactive {

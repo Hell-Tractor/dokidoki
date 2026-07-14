@@ -14,13 +14,13 @@ use crate::{
         character_states, characters, conversations as conversation_queries, proactive_logs, users,
     },
     error::AppError,
-    schedule::{self, current_wakeup_slot, in_daily_greeting_window},
+    schedule::{self, current_wakeup_slot, in_daily_greeting_window, in_pre_sleep_window, upcoming_pre_sleep},
     time::parse_timezone,
     utils::{OsUnitRng, UnitRng},
 };
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
-pub use triggers::{DailyGreetingExtras, TriggerContext, TriggerType};
+pub use triggers::{DailyGreetingExtras, PreSleepExtras, TriggerContext, TriggerType};
 
 /// 与 schedule refresh 同循环调用：超时落地 winding_down，再遍历会话投递主动消息。
 pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
@@ -141,6 +141,8 @@ async fn process_candidate(
     }
 
     let availability = candidate.availability.unwrap_or(crate::domain::Availability::Medium);
+    let (pre_sleep_eligible, pre_sleep_extras) =
+        evaluate_pre_sleep(chat, candidate, now).await?;
     let (daily_greeting_eligible, greeting_extras) =
         evaluate_daily_greeting(chat, candidate, now).await?;
 
@@ -161,6 +163,7 @@ async fn process_candidate(
         conversation_id,
         status: candidate.status,
         availability,
+        pre_sleep_eligible,
         daily_greeting_eligible,
         re_engage_eligible,
         silence_wake_eligible,
@@ -170,6 +173,7 @@ async fn process_candidate(
             conversation_id,
             status = %candidate.status,
             availability = %availability,
+            pre_sleep_eligible,
             daily_greeting_eligible,
             re_engage_eligible,
             silence_wake_eligible,
@@ -236,7 +240,8 @@ async fn process_candidate(
     );
 
     let delivered =
-        generate_and_deliver(chat, candidate, trigger, &greeting_extras).await?;
+        generate_and_deliver(chat, candidate, trigger, &greeting_extras, &pre_sleep_extras)
+            .await?;
     if !delivered {
         return Ok(false);
     }
@@ -285,6 +290,86 @@ async fn is_in_sleep_slot(
         return Ok(false);
     };
     Ok(schedule::current_slot_kind(&schedule, now)? == Some(schedule::SlotKind::Sleep))
+}
+
+async fn evaluate_pre_sleep(
+    chat: &Arc<ChatService>,
+    candidate: &conversation_queries::ProactiveCandidateRow,
+    now: chrono::DateTime<Utc>,
+) -> Result<(bool, PreSleepExtras), AppError> {
+    let extras = PreSleepExtras {
+        ask_user_busy_care: candidate.status
+            == crate::domain::ConversationStatus::PausedCharBusy,
+    };
+
+    let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
+    else {
+        return Ok((false, extras));
+    };
+    let schedule = match schedule::Schedule::try_from_json_value(raw) {
+        Ok(None) => return Ok((false, extras)),
+        Ok(Some(schedule)) => schedule,
+        Err(err) => {
+            tracing::warn!(
+                conversation_id = %candidate.id,
+                character_id = %candidate.character_id,
+                "pre_sleep: invalid schedule_json: {err}"
+            );
+            return Ok((false, extras));
+        }
+    };
+
+    let Some(status) = upcoming_pre_sleep(&schedule, now)? else {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            character_id = %candidate.character_id,
+            "pre_sleep: no upcoming sleep window"
+        );
+        return Ok((false, extras));
+    };
+
+    let cfg = &chat.proactive_config;
+    if !in_pre_sleep_window(
+        &status,
+        &candidate.character_id,
+        cfg.pre_sleep_window_min_mins,
+        cfg.pre_sleep_window_max_mins,
+    ) {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            minutes_until_sleep = status.minutes_until_sleep,
+            "pre_sleep: outside sleep lead-in window"
+        );
+        return Ok((false, extras));
+    }
+
+    let (char_day_start, char_day_end) =
+        character_local_day_bounds(now, &schedule.timezone, status.sleep_local_date)?;
+    let already = proactive_logs::count_trigger_between(
+        &chat.db,
+        &candidate.user_id,
+        &candidate.character_id,
+        TriggerType::PreSleep.as_str(),
+        char_day_start,
+        char_day_end,
+    )
+    .await?;
+    if already > 0 {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            character_id = %candidate.character_id,
+            "pre_sleep: already sent today"
+        );
+        return Ok((false, extras));
+    }
+
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        minutes_until_sleep = status.minutes_until_sleep,
+        ask_user_busy_care = extras.ask_user_busy_care,
+        "pre_sleep eligible"
+    );
+    Ok((true, extras))
 }
 
 async fn evaluate_daily_greeting(
@@ -498,6 +583,7 @@ async fn generate_and_deliver(
     candidate: &conversation_queries::ProactiveCandidateRow,
     trigger: TriggerType,
     greeting_extras: &DailyGreetingExtras,
+    pre_sleep_extras: &PreSleepExtras,
 ) -> Result<bool, AppError> {
     let turn_id = Uuid::new_v4().to_string();
     let special = if trigger == TriggerType::DailyGreeting {
@@ -505,6 +591,8 @@ async fn generate_and_deliver(
     } else {
         None
     };
+    let ask_user_busy_care =
+        trigger == TriggerType::PreSleep && pre_sleep_extras.ask_user_busy_care;
 
     let request = match crate::chat::build_proactive_request(
         &chat.db,
@@ -514,6 +602,7 @@ async fn generate_and_deliver(
         trigger.as_str(),
         chat.summary_config.keep_recent_turns,
         special.as_deref(),
+        ask_user_busy_care,
     )
     .await
     {

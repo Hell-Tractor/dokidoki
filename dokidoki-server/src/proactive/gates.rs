@@ -67,6 +67,8 @@ mod tests {
             availability_low: 0.05,
             daily_greeting_window_min_mins: 30,
             daily_greeting_window_max_mins: 60,
+            pre_sleep_window_min_mins: 10,
+            pre_sleep_window_max_mins: 30,
         }
     }
 
@@ -126,6 +128,8 @@ mod tests {
             availability_low: 0.0,
             daily_greeting_window_min_mins: 30,
             daily_greeting_window_max_mins: 60,
+            pre_sleep_window_min_mins: 10,
+            pre_sleep_window_max_mins: 30,
         };
         assert_eq!(config.base_probability(Availability::High), 0.9);
         assert_eq!(config.base_probability(Availability::Medium), 0.1);

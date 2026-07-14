@@ -213,12 +213,12 @@
 
 #### 触发器（逐个实现）
 
-- [ ] **`pre_sleep`**  
-  - 即将切入 / 刚切入 `kind=sleep` **之前**发晚安类收束（不在 sleep 槽内刷屏）  
+- [x] **`pre_sleep`**  
+  - 即将切入 `kind=sleep` **之前**发晚安类收束（不在 sleep 槽内刷屏）  
   - 每角色每日至多一次；计入 proactive 日上限与 `proactive_logs`（`trigger_type=pre_sleep`）  
-  - 若当时 `paused_char_busy`：按性格决定是否顺便问用户忙完没  
+  - 若当时 `paused_char_busy`：Prompt 按性格决定是否顺便问用户忙完没  
   - 覆盖忙段与 sleep 首尾相接、不宜立刻 `re_engage` 开聊的边界；睡醒后再 `daily_greeting` / `re_engage`  
-  - Prompt：新建场景模板（写入《Prompt规范》）
+  - Prompt：T-21（及可选附加关心）
 - [x] **`daily_greeting`（合并 `special_date`）**  
   - 日程 `kind=wake` 段内 30–60 分钟窗；每角色每日至多一次  
   - 同轮可叠 T-18：用户生日；公共节日 **暂缓**
@@ -234,7 +234,7 @@
 
 - [x] T-12 / T-13 / T-14 / T-15 / T-18
 - [x] T-02 / 主回复：`[USER_BUSY]` tag；`availability=low` 下 `[END_TOPIC]` 须说明去忙
-- [ ] **`pre_sleep` 场景模板**（晚安；`paused_char_busy` 时可叠加「忙完没」关心）
+- [x] **`pre_sleep` 场景模板** T-21（晚安；`paused_char_busy` 时可叠加「忙完没」关心）
 - [ ] 落地 T-16 / T-17
 - [ ] `re_engage` 场景区分 char_busy / user_busy（可调 T-15 或附加）
 

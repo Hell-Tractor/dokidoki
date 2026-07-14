@@ -73,3 +73,6 @@ availability_low = 0.05
 # 起床活动段开始后，在 [min, max] 分钟内随机取窗；进窗后至多每日问候一次
 daily_greeting_window_min_mins = 0
 daily_greeting_window_max_mins = 15
+# sleep 段开始前，在 [min, max] 分钟内随机取窗；进窗后至多发一次 pre_sleep
+pre_sleep_window_min_mins = 10
+pre_sleep_window_max_mins = 30
