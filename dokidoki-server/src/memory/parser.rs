@@ -34,12 +34,19 @@ pub fn parse_llm_response(raw: &str) -> ParsedLlmResponse {
         if let Some(payload) = line.strip_prefix("[STORE_MEMORY]") {
             if let Some(action) = parse_store_memory(payload.trim()) {
                 store_memories.push(action);
+            } else {
+                tracing::debug!(
+                    payload = %payload.trim(),
+                    "malformed STORE_MEMORY line dropped"
+                );
             }
             continue;
         }
         if let Some(target) = line.strip_prefix("[FORGET_MEMORY]") {
             let target = target.trim();
-            if !target.is_empty() {
+            if target.is_empty() {
+                tracing::debug!("empty FORGET_MEMORY target dropped");
+            } else {
                 forget_memories.push(ForgetMemoryAction {
                     target: target.to_owned(),
                 });

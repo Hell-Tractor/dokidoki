@@ -26,6 +26,10 @@ pub async fn refresh_character_state(
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
     if schedule.is_null() || schedule.as_object().is_some_and(|o| o.is_empty()) {
+        tracing::debug!(
+            character_id = %character_id,
+            "schedule refresh: empty schedule_json, using default state"
+        );
         return Ok(default_state());
     }
 

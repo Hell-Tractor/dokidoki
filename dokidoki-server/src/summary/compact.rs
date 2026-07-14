@@ -96,6 +96,11 @@ pub async fn run_compact(
         summary_fields.summary_covers_until,
     );
     if turn_ids.is_empty() {
+        tracing::debug!(
+            conversation_id = %conversation_id,
+            total_turns = turns.len(),
+            "summary compact skipped: no new turns past covers_until"
+        );
         return Ok(());
     }
 
@@ -103,8 +108,19 @@ pub async fn run_compact(
         message_queries::list_text_messages_for_turn_ids(db, conversation_id, &turn_ids).await?;
     let messages_text = format_messages_for_summary(&messages);
     if messages_text.is_empty() {
+        tracing::warn!(
+            conversation_id = %conversation_id,
+            turns = turn_ids.len(),
+            "summary compact skipped: selected turns have no text"
+        );
         return Ok(());
     }
+
+    tracing::info!(
+        conversation_id = %conversation_id,
+        turns = turn_ids.len(),
+        "summary compact starting"
+    );
 
     let request = build_summary_request(
         conversation_id,
@@ -115,6 +131,10 @@ pub async fn run_compact(
     let raw = llm.chat(request).await?;
     let merged = truncate_summary(raw.trim(), config.max_summary_chars);
     if merged.is_empty() {
+        tracing::warn!(
+            conversation_id = %conversation_id,
+            "summary compact skipped: empty llm summary"
+        );
         return Ok(());
     }
 
@@ -131,7 +151,13 @@ pub async fn run_compact(
         })
         .ok_or_else(|| AppError::internal(std::io::Error::other("compact covers_until missing")))?;
 
-    conversation_queries::update_summary(db, conversation_id, &merged, covers_until).await
+    conversation_queries::update_summary(db, conversation_id, &merged, covers_until).await?;
+    tracing::info!(
+        conversation_id = %conversation_id,
+        summary_chars = merged.chars().count(),
+        "summary compact saved"
+    );
+    Ok(())
 }
 
 #[cfg(test)]

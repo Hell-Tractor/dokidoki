@@ -63,6 +63,13 @@ async fn deliver_loop(
     let total = bubbles.len();
     for (seq, content) in bubbles.into_iter().enumerate() {
         if *cancel_rx.borrow() {
+            tracing::info!(
+                conversation_id = %conversation_id,
+                turn_id = %turn_id,
+                delivered = seq,
+                remaining = total - seq,
+                "delivery cancelled before bubble"
+            );
             chat.emit_turn_cancelled(user_id, conversation_id, turn_id)
                 .await;
             return Ok(());
@@ -88,6 +95,13 @@ async fn deliver_loop(
                 _ = tokio::time::sleep(Duration::from_millis(delay)) => {},
                 _ = cancel_rx.changed() => {
                     if *cancel_rx.borrow() {
+                        tracing::info!(
+                            conversation_id = %conversation_id,
+                            turn_id = %turn_id,
+                            delivered = seq + 1,
+                            remaining = total - seq - 1,
+                            "delivery cancelled during bubble delay"
+                        );
                         chat.emit_turn_cancelled(user_id, conversation_id, turn_id)
                             .await;
                         return Ok(());

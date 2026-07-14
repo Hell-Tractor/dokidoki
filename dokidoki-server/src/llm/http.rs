@@ -65,6 +65,10 @@ struct ResponseMessage {
 impl LlmBackend for HttpLlmBackend {
     async fn chat(&self, request: ChatRequest) -> Result<String, AppError> {
         if self.api_key.is_empty() || self.model.is_empty() || self.base_url.is_empty() {
+            tracing::warn!(
+                conversation_id = %request.conversation_id,
+                "llm http misconfigured: empty api_key/model/base_url"
+            );
             return Err(AppError::llm_unavailable());
         }
 

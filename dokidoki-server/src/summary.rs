@@ -13,6 +13,10 @@ pub async fn maybe_compact(chat: &Arc<ChatService>, conversation_id: &str) -> Re
     {
         let mut in_progress = chat.compacting.lock().await;
         if !in_progress.insert(conversation_id.to_owned()) {
+            tracing::debug!(
+                conversation_id = %conversation_id,
+                "summary compact skipped: already in progress"
+            );
             return Ok(());
         }
     }

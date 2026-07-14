@@ -47,6 +47,11 @@ impl WsHub {
             connection.subscriptions.insert(conversation_id.to_owned());
             true
         } else {
+            tracing::debug!(
+                connection_id,
+                conversation_id,
+                "ws subscribe ignored: connection gone"
+            );
             false
         }
     }
@@ -71,12 +76,28 @@ impl WsHub {
         };
 
         let connections = self.connections.lock().await;
+        let mut sent = 0u32;
+        let mut dropped = 0u32;
         for connection in connections.values() {
             if connection.user_id == user_id
                 && connection.subscriptions.contains(conversation_id)
             {
-                let _ = connection.tx.send(text.clone());
+                if connection.tx.send(text.clone()).is_err() {
+                    dropped += 1;
+                } else {
+                    sent += 1;
+                }
             }
+        }
+        if dropped > 0 {
+            tracing::warn!(
+                user_id,
+                conversation_id,
+                event_type,
+                dropped,
+                sent,
+                "ws emit dropped: subscriber channel closed"
+            );
         }
     }
 }

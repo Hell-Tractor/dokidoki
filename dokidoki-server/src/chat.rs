@@ -182,6 +182,10 @@ impl ChatService {
 
     async fn run_icebreaker(self: &Arc<Self>, user_id: &str, conversation_id: &str) -> Result<(), AppError> {
         if !conversation_queries::try_begin_icebreaker(&self.db, conversation_id).await? {
+            tracing::debug!(
+                conversation_id = %conversation_id,
+                "icebreaker skipped: already started or done"
+            );
             return Ok(());
         }
 
@@ -192,10 +196,20 @@ impl ChatService {
         let bubbles = parser::parse_reply(&raw);
 
         if bubbles.is_empty() {
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                raw_len = raw.len(),
+                "icebreaker empty reply; rolling back first_contact_done"
+            );
             conversation_queries::rollback_icebreaker(&self.db, conversation_id).await?;
             return Ok(());
         }
 
+        tracing::info!(
+            conversation_id = %conversation_id,
+            bubbles = bubbles.len(),
+            "icebreaker delivering"
+        );
         self.emit_character_typing(user_id, conversation_id, true).await;
         delivery::deliver_staggered(self, user_id, conversation_id, &turn_id, None, bubbles).await?;
         self.emit_character_typing(user_id, conversation_id, false).await;
@@ -257,13 +271,28 @@ impl ChatService {
 
         match on_user_message(current_status, &user_content, pause_on_farewell) {
             UserMessageDecision::PauseWithoutReply => {
+                tracing::info!(
+                    conversation_id = %conversation_id,
+                    "farewell in winding_down; pause without reply"
+                );
                 self.update_conversation_status(conversation_id, ConversationStatus::Paused)
                     .await?;
                 return Ok(Vec::new());
             }
-            UserMessageDecision::IgnoreWhilePaused => return Ok(Vec::new()),
+            UserMessageDecision::IgnoreWhilePaused => {
+                tracing::debug!(
+                    conversation_id = %conversation_id,
+                    "ignore user message while paused"
+                );
+                return Ok(Vec::new());
+            }
             UserMessageDecision::CallLlm { status } => {
                 if let Some(status) = status {
+                    tracing::debug!(
+                        conversation_id = %conversation_id,
+                        status = status.as_str(),
+                        "conversation status updated before llm"
+                    );
                     self.update_conversation_status(conversation_id, status)
                         .await?;
                 }
@@ -289,13 +318,39 @@ impl ChatService {
         .await?;
 
         if let Some(status) = status_after_llm_action(parsed.action.clone()) {
+            tracing::info!(
+                conversation_id = %conversation_id,
+                status = status.as_str(),
+                "conversation status updated after llm action"
+            );
             self.update_conversation_status(conversation_id, status)
                 .await?;
         }
 
         Ok(match parsed.action {
-            LlmAction::NoReply => Vec::new(),
-            LlmAction::Reply(bubbles) | LlmAction::EndTopic(bubbles) => bubbles,
+            LlmAction::NoReply => {
+                tracing::info!(
+                    conversation_id = %conversation_id,
+                    "llm returned NO_REPLY"
+                );
+                Vec::new()
+            }
+            LlmAction::Reply(bubbles) => {
+                tracing::debug!(
+                    conversation_id = %conversation_id,
+                    bubbles = bubbles.len(),
+                    "llm returned REPLY"
+                );
+                bubbles
+            }
+            LlmAction::EndTopic(bubbles) => {
+                tracing::info!(
+                    conversation_id = %conversation_id,
+                    bubbles = bubbles.len(),
+                    "llm returned END_TOPIC"
+                );
+                bubbles
+            }
         })
     }
 
@@ -309,7 +364,18 @@ impl ChatService {
             return;
         };
 
-        let _ = delivery.cancel.send(true);
+        tracing::info!(
+            conversation_id = %conversation_id,
+            turn_id = %delivery.turn_id,
+            "cancelling active delivery"
+        );
+        if delivery.cancel.send(true).is_err() {
+            tracing::debug!(
+                conversation_id = %conversation_id,
+                turn_id = %delivery.turn_id,
+                "delivery cancel signal dropped (receiver gone)"
+            );
+        }
         self.emit_turn_cancelled(user_id, conversation_id, &delivery.turn_id)
             .await;
     }

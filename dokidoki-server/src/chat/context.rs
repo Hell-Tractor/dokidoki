@@ -150,7 +150,16 @@ pub async fn build_proactive_request(
         let role = match message.role.as_str() {
             "user" => "user",
             "character" => "assistant",
-            _ => continue,
+            _ => {
+                tracing::warn!(
+                    "Unknown message role: {}, skipping message(id = {}, user_id = {}, conversation_id = {})",
+                    message.role,
+                    message.id,
+                    user_id,
+                    conversation_id
+                );
+                continue;
+            }
         };
         let content = message.content.unwrap_or_default();
         if content.is_empty() {

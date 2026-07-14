@@ -42,6 +42,10 @@ pub async fn schedule(
     tokio::time::sleep(Duration::from_millis(remaining_wait_ms)).await;
 
     let Some(user_message_id) = user_message_ids.last() else {
+        tracing::warn!(
+            conversation_id = %conversation_id,
+            "reply schedule skipped: empty user_message_ids"
+        );
         return Ok(());
     };
 
@@ -64,6 +68,11 @@ pub async fn schedule(
     };
 
     if bubbles.is_empty() {
+        tracing::debug!(
+            conversation_id = %conversation_id,
+            turn_id = %turn_id,
+            "reply schedule: empty bubbles after generate"
+        );
         chat.emit_character_typing(user_id, conversation_id, false).await;
         chat.spawn_maybe_compact(conversation_id);
         return Ok(());
