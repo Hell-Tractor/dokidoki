@@ -64,3 +64,7 @@ fcm_credentials_path = "/secrets/fcm.json"   # 可选
 
 [proactive]
 default_max_per_day = 20
+# 各 availability 基础触发概率（再乘 persona_json.proactive.probability_factor）
+availability_high = 0.45
+availability_medium = 0.25
+availability_low = 0.05

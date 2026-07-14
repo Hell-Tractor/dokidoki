@@ -4,5 +4,6 @@ pub mod characters;
 pub mod conversations;
 pub mod memories;
 pub mod messages;
+pub mod proactive_logs;
 pub mod sessions;
 pub mod users;

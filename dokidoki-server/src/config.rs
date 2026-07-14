@@ -65,6 +65,9 @@ impl Config {
             },
             proactive: Proactive {
                 default_max_per_day: 20,
+                availability_high: 0.45,
+                availability_medium: 0.25,
+                availability_low: 0.05,
             },
         }
     }
@@ -194,7 +197,23 @@ pub struct Push {
     pub fcm_credentials_path: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Proactive {
     pub default_max_per_day: u32,
+    /// availability=high 时基础触发概率（再乘 persona `probability_factor`）
+    pub availability_high: f64,
+    /// availability=medium
+    pub availability_medium: f64,
+    /// availability=low
+    pub availability_low: f64,
+}
+
+impl Proactive {
+    pub fn base_probability(&self, availability: &str) -> f64 {
+        match availability {
+            "high" => self.availability_high,
+            "low" => self.availability_low,
+            _ => self.availability_medium,
+        }
+    }
 }

@@ -38,6 +38,7 @@ impl AppState {
             ws_hub.clone(),
             config.chat.clone(),
             config.summary.clone(),
+            config.proactive.clone(),
         ));
         Self {
             config,

@@ -6,6 +6,7 @@ pub mod error;
 pub mod llm;
 pub mod memory;
 pub mod prompt;
+pub mod proactive;
 pub mod schedule;
 pub mod state;
 pub mod summary;
@@ -26,9 +27,10 @@ pub async fn run() -> Result<()> {
     let shared_state = Arc::new(state::AppState::new().await?);
 
     let scheduler_pool = shared_state.db.clone();
+    let scheduler_chat = shared_state.chat.clone();
     let memory_pool = shared_state.db.clone();
     tokio::spawn(async move {
-        schedule::run_scheduler(scheduler_pool).await;
+        schedule::run_scheduler(scheduler_pool, scheduler_chat).await;
     });
     tokio::spawn(async move {
         memory::run_expiry_cleanup(memory_pool).await;

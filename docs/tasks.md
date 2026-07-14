@@ -38,6 +38,7 @@
 - [x] `PATCH /me`（display_name、birthday、timezone、max_proactive_per_day）
 - [x] 注册必填 `timezone`（IANA；客户端默认设备时区）
 - [ ] 支持 PATCH 清空 birthday（`null` 语义）
+- [ ] `holiday_region`（Nager country code；随 M-07 公共节日）
 
 ### M-02 多角色会话（P0）
 
@@ -171,16 +172,56 @@
 
 ### M-07 主动消息（P1）
 
-- [ ] `proactive` 模块：六类触发器
-- [ ] 全局日上限校验（`max_proactive_per_day`，按用户时区自然日）
-- [ ] 勿扰时段校验（`users.timezone` + 本地墙钟）
-- [ ] `scheduler` 定时任务
+> 本里程碑只做服务端生成 + 落库 + **WS 在线投递**；FCM / 离线推送延后到「推送与设备」。
+>
+> **同 tick 多触发**：每个 `(user, character)` 会话对只发 **一条**，按下表优先级取最高者。  
+> 优先级（高 → 低）：`daily_greeting`（含 special）→ `re_engage` → `silence_wake` → `mood_followup` → `schedule_change`。
 
-### 推送与设备（P1）
+#### 骨架与闸门
+
+- [x] `proactive` 模块骨架（`tick`、触发求值、Prompt 组装、LLM、`[REPLY]`、复用 chat 投递）
+- [x] 挂到现有 `scheduler`（与 schedule refresh 同循环或邻接 tick）
+- [x] 全局日上限校验（`max_proactive_per_day`，按用户时区自然日；成功投递才写 `proactive_logs`）
+- [x] 勿扰时段校验（`user_character_settings` + `users.timezone` 本地墙钟）
+- [x] availability / `proactive.probability_factor` 抽样
+- [x] LLM 失败：本轮跳过，不计日上限、不写 log
+- [x] 投递成功：`proactive_logs` + `last_proactive_at`；`re_engage` 时 `paused → active`
+
+#### 触发器（逐个实现）
+
+- [ ] **`daily_greeting`（合并 `special_date`）**  
+  - 日程起床段内 30–60 分钟窗随机触发；每角色每日至多一次（调度与现方案不变）  
+  - **不单独跑 special_date tick**；同轮问候可叠加 T-18 语境：  
+    - 用户生日（`users.birthday`，按用户时区本地日）  
+    - 公共节日：[Nager.Date](https://date.nager.at/)（按 `users.holiday_region` 拉当年 Public Holidays，服务端缓存）  
+- [ ] 用户可配置节日地区：`users.holiday_region`（Nager country code，如 `CN` / `US`；`GET/PATCH /me` + Settings）  
+- [ ] Nager.Date 适配：按 region+年份拉取并缓存；tick 只读缓存
+- [ ] **`re_engage`**：`status=paused` 且超过 `re_engage_after_minutes`，availability ≥ medium
+- [ ] **`silence_wake`**：距用户末条消息 > `silence_after_hours`，availability ≥ medium
+- [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却（需补情绪标记数据/来源）
+- [ ] **`schedule_change`**：`character_states` 活动段刚变化且适合主动分享
+
+#### Prompt
+
+- [ ] 落地 T-12～T-18（`daily_greeting` 与 special 合并时同轮可叠 T-13 + T-18）
+
+#### P2（暂不做）
+
+- [ ] 私人纪念日经 memory（`date.*`）在 `daily_greeting` 当日注入 T-18
+
+### 角色生日反应（P2，暂不做）
+
+> 与用户生日主动问候相反：这是**用户在角色生日当天祝他生日快乐**时的对话反应，不是主动消息触发器。
+
+- [ ] 角色生日数据（如 `characters.birthday` 或 `persona_json`；种子/运维配置）
+- [ ] 用户时区本地日 = 角色生日，且用户消息像生日祝福时，注入场景 Prompt，角色给出符合人设的特殊反应
+- [ ] Prompt 模板（如 T-xx「角色生日被祝福」）；写入《Prompt规范》
+
+### 推送与设备（P1，M-07 之后）
 
 - [ ] `POST /devices`（FCM token 注册）
 - [ ] `push` 模块：FCM 发送
-- [ ] 离线主动消息通知 payload
+- [ ] 离线主动消息通知 payload（主动消息已落库后再补推送）
 
 ### 外部适配器
 
@@ -216,6 +257,7 @@
 
 - [x] P-05 SettingsPage：称呼、生日、时区编辑（`PATCH /me`）
 - [x] 全局主动消息日上限 Stepper
+- [ ] 节日地区选择（`holiday_region`，随 M-07）
 
 ### M-02 多角色会话（P0）
 
@@ -268,6 +310,7 @@
 
 - [ ] iOS 构建
 - [ ] 会话列表 `current_activity` 副标题
+- [ ] 角色生日：用户当日祝福时的特殊气泡体验（随后端场景 Prompt）
 - [ ] TTS、好感度、引用回复等（见需求 §4.18）
 
 ---

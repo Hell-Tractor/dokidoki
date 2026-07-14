@@ -1,9 +1,54 @@
+use chrono::NaiveTime;
 use sqlx::MySqlPool;
 
 use crate::{
     db::models::{Conversation, ConversationListRow},
     error::AppError,
 };
+
+/// 主动消息 tick 候选：已破冰的会话及闸门所需字段。
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProactiveCandidateRow {
+    pub id: String,
+    pub user_id: String,
+    pub character_id: String,
+    pub status: String,
+    pub timezone: String,
+    pub max_proactive_per_day: i32,
+    pub availability: Option<String>,
+    pub dnd_start: Option<NaiveTime>,
+    pub dnd_end: Option<NaiveTime>,
+}
+
+pub async fn list_proactive_candidates(
+    pool: &MySqlPool,
+) -> Result<Vec<ProactiveCandidateRow>, AppError> {
+    let rows = sqlx::query_as::<_, ProactiveCandidateRow>(
+        r#"
+        SELECT
+            c.id,
+            c.user_id,
+            c.character_id,
+            c.status,
+            u.timezone,
+            u.max_proactive_per_day,
+            cs.availability,
+            ucs.dnd_start,
+            ucs.dnd_end
+        FROM conversations c
+        INNER JOIN users u ON u.id = c.user_id
+        LEFT JOIN character_states cs ON cs.character_id = c.character_id
+        LEFT JOIN user_character_settings ucs
+            ON ucs.user_id = c.user_id AND ucs.character_id = c.character_id
+        WHERE c.first_contact_done = 1
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(rows)
+}
 
 pub async fn list_by_user(
     pool: &MySqlPool,

@@ -9,7 +9,7 @@ use tokio::sync::{watch, Mutex};
 use uuid::Uuid;
 
 use crate::{
-    config::{Chat, Summary},
+    config::{Chat, Proactive, Summary},
     db::queries::{characters, conversations as conversation_queries, messages as message_queries},
     db::message::Message,
     domain::messages::SentTextMessage,
@@ -27,6 +27,8 @@ mod read_receipt;
 mod reply_delay;
 mod reply_scheduler;
 
+pub use context::build_proactive_request;
+
 use conversation_fsm::{
     on_user_message, status_after_llm_action, ConversationStatus, UserMessageDecision,
 };
@@ -38,14 +40,15 @@ pub(super) struct ActiveDelivery {
 }
 
 pub struct ChatService {
-    pub(super) db: MySqlPool,
-    pub(super) llm: Arc<LlmClient>,
-    pub(super) ws_hub: Arc<WsHub>,
-    pub(super) chat_config: Chat,
-    pub(super) summary_config: Summary,
+    pub(crate) db: MySqlPool,
+    pub(crate) llm: Arc<LlmClient>,
+    pub(crate) ws_hub: Arc<WsHub>,
+    pub(crate) chat_config: Chat,
+    pub(crate) summary_config: Summary,
+    pub(crate) proactive_config: Proactive,
     burst_buffers: Arc<Mutex<HashMap<String, burst::BurstBuffer>>>,
-    pub(super) active_deliveries: Arc<Mutex<HashMap<String, ActiveDelivery>>>,
-    pub(super) compacting: Arc<Mutex<HashSet<String>>>,
+    pub(crate) active_deliveries: Arc<Mutex<HashMap<String, ActiveDelivery>>>,
+    pub(crate) compacting: Arc<Mutex<HashSet<String>>>,
 }
 
 #[derive(Serialize)]
@@ -101,6 +104,7 @@ impl ChatService {
         ws_hub: Arc<WsHub>,
         chat_config: Chat,
         summary_config: Summary,
+        proactive_config: Proactive,
     ) -> Self {
         Self {
             db,
@@ -108,6 +112,7 @@ impl ChatService {
             ws_hub,
             chat_config,
             summary_config,
+            proactive_config,
             burst_buffers: Arc::new(Mutex::new(HashMap::new())),
             active_deliveries: Arc::new(Mutex::new(HashMap::new())),
             compacting: Arc::new(Mutex::new(HashSet::new())),
@@ -198,7 +203,30 @@ impl ChatService {
         Ok(())
     }
 
-    pub(super) async fn generate_character_bubbles(
+    pub(crate) async fn has_active_delivery(&self, conversation_id: &str) -> bool {
+        self.active_deliveries.lock().await.contains_key(conversation_id)
+    }
+
+    /// 主动消息气泡投递（无 reply_to）；成功后触发摘要压缩。
+    pub(crate) async fn deliver_proactive_bubbles(
+        self: &Arc<Self>,
+        user_id: &str,
+        conversation_id: &str,
+        turn_id: &str,
+        bubbles: Vec<String>,
+    ) -> Result<(), AppError> {
+        self.emit_character_typing(user_id, conversation_id, true).await;
+        let result =
+            delivery::deliver_staggered(self, user_id, conversation_id, turn_id, None, bubbles)
+                .await;
+        self.emit_character_typing(user_id, conversation_id, false)
+            .await;
+        result?;
+        self.spawn_maybe_compact(conversation_id);
+        Ok(())
+    }
+
+    pub(crate) async fn generate_character_bubbles(
         &self,
         user_id: &str,
         conversation_id: &str,
@@ -271,7 +299,7 @@ impl ChatService {
         })
     }
 
-    pub(super) async fn cancel_active_delivery(&self, user_id: &str, conversation_id: &str) {
+    pub(crate) async fn cancel_active_delivery(&self, user_id: &str, conversation_id: &str) {
         let delivery = {
             let mut deliveries = self.active_deliveries.lock().await;
             deliveries.remove(conversation_id)
@@ -286,7 +314,7 @@ impl ChatService {
             .await;
     }
 
-    pub(super) async fn emit_message(
+    pub(crate) async fn emit_message(
         &self,
         user_id: &str,
         conversation_id: &str,
@@ -298,7 +326,7 @@ impl ChatService {
             .await;
     }
 
-    pub(super) async fn emit_character_typing(
+    pub(crate) async fn emit_character_typing(
         &self,
         user_id: &str,
         conversation_id: &str,
@@ -317,7 +345,7 @@ impl ChatService {
             .await;
     }
 
-    pub(super) async fn emit_message_read(
+    pub(crate) async fn emit_message_read(
         &self,
         user_id: &str,
         conversation_id: &str,
@@ -342,7 +370,7 @@ impl ChatService {
             .await;
     }
 
-    pub(super) async fn mark_user_messages_read(
+    pub(crate) async fn mark_user_messages_read(
         &self,
         user_id: &str,
         conversation_id: &str,
@@ -365,7 +393,7 @@ impl ChatService {
         Ok(Some(read_at))
     }
 
-    pub(super) async fn emit_turn_cancelled(
+    pub(crate) async fn emit_turn_cancelled(
         &self,
         user_id: &str,
         conversation_id: &str,

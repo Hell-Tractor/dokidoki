@@ -123,3 +123,24 @@ pub async fn upsert(
 
     Ok(())
 }
+
+pub async fn touch_last_proactive_at(
+    pool: &MySqlPool,
+    character_id: &str,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE character_states
+        SET last_proactive_at = ?
+        WHERE character_id = ?
+        "#,
+    )
+    .bind(at)
+    .bind(character_id)
+    .execute(pool)
+    .await
+    .map_err(AppError::from_db)?;
+
+    Ok(())
+}
