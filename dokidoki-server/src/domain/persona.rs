@@ -143,6 +143,18 @@ pub struct ProactiveConfig {
     /// 每活动段确定性抽样一次，失败则本段不再重试。
     #[serde(default = "default_schedule_change_probability")]
     pub schedule_change_probability: f64,
+    /// `re_engage` 重抽间隔下限（分钟，均匀取一固定间隔，每间隔一次）。
+    #[serde(default = "default_re_engage_retry_min")]
+    pub re_engage_retry_min_minutes: u32,
+    /// `re_engage` 重抽间隔上限（分钟）。
+    #[serde(default = "default_re_engage_retry_max")]
+    pub re_engage_retry_max_minutes: u32,
+    /// `silence_wake` 重抽间隔下限（分钟，均匀取一固定间隔，每间隔一次）。
+    #[serde(default = "default_silence_wake_retry_min")]
+    pub silence_wake_retry_min_minutes: u32,
+    /// `silence_wake` 重抽间隔上限（分钟）。
+    #[serde(default = "default_silence_wake_retry_max")]
+    pub silence_wake_retry_max_minutes: u32,
     #[serde(default)]
     pub user_busy_reengage: UserBusyReengage,
 }
@@ -153,6 +165,10 @@ impl Default for ProactiveConfig {
             silence_after_hours: default_silence_after_hours(),
             probability_factor: default_probability_factor(),
             schedule_change_probability: default_schedule_change_probability(),
+            re_engage_retry_min_minutes: default_re_engage_retry_min(),
+            re_engage_retry_max_minutes: default_re_engage_retry_max(),
+            silence_wake_retry_min_minutes: default_silence_wake_retry_min(),
+            silence_wake_retry_max_minutes: default_silence_wake_retry_max(),
             user_busy_reengage: UserBusyReengage::default(),
         }
     }
@@ -168,6 +184,22 @@ fn default_probability_factor() -> f64 {
 
 fn default_schedule_change_probability() -> f64 {
     0.35
+}
+
+fn default_re_engage_retry_min() -> u32 {
+    15
+}
+
+fn default_re_engage_retry_max() -> u32 {
+    45
+}
+
+fn default_silence_wake_retry_min() -> u32 {
+    30
+}
+
+fn default_silence_wake_retry_max() -> u32 {
+    90
 }
 
 /// `paused_user_busy` 下 re_engage 的时间→概率曲线。

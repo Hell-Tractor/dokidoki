@@ -13,8 +13,8 @@ use crate::{
 
 pub use resolver::resolve;
 pub use resolver::{
-    current_custom_slot, current_slot_kind, current_wakeup_slot, in_daily_greeting_window,
-    in_pre_sleep_window, in_schedule_change_window, upcoming_pre_sleep, CustomSlotStatus,
+    at_daily_greeting_fire_time, at_pre_sleep_fire_time, current_custom_slot, current_slot_kind,
+    current_wakeup_slot, in_schedule_change_window, upcoming_pre_sleep, CustomSlotStatus,
     PreSleepStatus, WakeupSlotStatus,
 };
 pub use scheduler::run as run_scheduler;

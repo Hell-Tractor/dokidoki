@@ -15,11 +15,10 @@ use crate::{
     },
     error::AppError,
     schedule::{
-        self, current_custom_slot, current_wakeup_slot, in_daily_greeting_window,
-        in_pre_sleep_window, in_schedule_change_window, upcoming_pre_sleep,
+        self, at_daily_greeting_fire_time, at_pre_sleep_fire_time, current_custom_slot,
+        current_wakeup_slot, in_schedule_change_window, upcoming_pre_sleep,
     },
     time::parse_timezone,
-    utils::{OsUnitRng, UnitRng},
 };
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
@@ -34,12 +33,11 @@ pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
     let candidates = conversation_queries::list_proactive_candidates(&chat.db).await?;
     tracing::debug!(candidates = candidates.len(), "proactive tick begin");
 
-    let mut rng = OsUnitRng;
     let now = Utc::now();
     let mut delivered_count = 0u32;
 
     for candidate in candidates {
-        match process_candidate(&chat, &candidate, now, &mut rng).await {
+        match process_candidate(&chat, &candidate, now).await {
             Ok(true) => delivered_count += 1,
             Ok(false) => {}
             Err(err) => {
@@ -85,7 +83,6 @@ async fn process_candidate(
     chat: &Arc<ChatService>,
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
-    rng: &mut impl UnitRng,
 ) -> Result<bool, AppError> {
     let conversation_id = candidate.id.as_str();
     let user_id = candidate.user_id.as_str();
@@ -155,13 +152,18 @@ async fn process_candidate(
         .await?
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
-    let (re_engage_eligible, user_busy_curve_p) =
-        evaluate_re_engage(candidate, now, &persona.proactive.user_busy_reengage);
+    let (re_engage_eligible, _) = evaluate_re_engage(
+        candidate,
+        now,
+        &persona.proactive,
+        chat.proactive_config.base_probability(availability),
+    );
     let silence_wake_eligible = evaluate_silence_wake(
         candidate,
         now,
         availability,
-        persona.proactive.silence_after_hours,
+        &persona.proactive,
+        chat.proactive_config.base_probability(availability),
     );
     let (schedule_change_eligible, schedule_change_extras) = evaluate_schedule_change(
         chat,
@@ -197,56 +199,6 @@ async fn process_candidate(
         );
         return Ok(false);
     };
-
-    let probability_factor = persona.proactive.probability_factor;
-    let base = chat.proactive_config.base_probability(availability);
-    let pass_probability = match (trigger, user_busy_curve_p) {
-        (TriggerType::ReEngage, Some(curve_p)) => {
-            // paused_user_busy：P(t) × 全局/availability 闸门
-            let final_p = (curve_p * base * probability_factor).clamp(0.0, 1.0);
-            let roll = rng.next_unit();
-            let ok = roll < final_p;
-            if !ok {
-                tracing::debug!(
-                    conversation_id,
-                    curve_p,
-                    base,
-                    probability_factor,
-                    final_p,
-                    roll,
-                    "proactive skipped: user_busy re_engage curve"
-                );
-            }
-            ok
-        }
-        // schedule_change：已在 timing 求值里按性格倾向做了本段一次确定性抽样
-        (TriggerType::ScheduleChange, _) => true,
-        _ => {
-            if !passes_probability_gate(
-                &chat.proactive_config,
-                availability,
-                probability_factor,
-                rng,
-            ) {
-                tracing::debug!(
-                    conversation_id,
-                    user_id,
-                    character_id,
-                    trigger = trigger.as_str(),
-                    availability = %availability,
-                    probability_factor,
-                    base,
-                    "proactive skipped: probability gate"
-                );
-                false
-            } else {
-                true
-            }
-        }
-    };
-    if !pass_probability {
-        return Ok(false);
-    }
 
     tracing::info!(
         conversation_id,
@@ -353,7 +305,7 @@ async fn evaluate_pre_sleep(
     };
 
     let cfg = &chat.proactive_config;
-    if !in_pre_sleep_window(
+    if !at_pre_sleep_fire_time(
         &status,
         &candidate.character_id,
         cfg.pre_sleep_window_min_mins,
@@ -362,7 +314,7 @@ async fn evaluate_pre_sleep(
         tracing::trace!(
             conversation_id = %candidate.id,
             minutes_until_sleep = status.minutes_until_sleep,
-            "pre_sleep: outside sleep lead-in window"
+            "pre_sleep: before fixed fire time"
         );
         return Ok((false, extras));
     }
@@ -449,7 +401,7 @@ async fn evaluate_daily_greeting(
     };
 
     let cfg = &chat.proactive_config;
-    if !in_daily_greeting_window(
+    if !at_daily_greeting_fire_time(
         &wakeup,
         &candidate.character_id,
         cfg.daily_greeting_window_min_mins,
@@ -459,7 +411,7 @@ async fn evaluate_daily_greeting(
             conversation_id = %candidate.id,
             activity = %wakeup.activity,
             minutes_into_slot = wakeup.minutes_into_slot,
-            "daily_greeting: outside greeting window"
+            "daily_greeting: before fixed fire time"
         );
         return Ok((false, extras));
     }
@@ -498,17 +450,56 @@ async fn evaluate_daily_greeting(
 fn evaluate_re_engage(
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
-    user_busy_curve: &crate::domain::persona::UserBusyReengage,
+    proactive: &crate::domain::persona::ProactiveConfig,
+    availability_base: f64,
 ) -> (bool, Option<f64>) {
+    let character_id = candidate.character_id.as_str();
+    let factor = proactive.probability_factor;
+
     if triggers::is_char_busy_re_engage_ready(
         candidate.status,
         candidate.activity_ends_at,
         now,
     ) {
+        let Some(anchor) = candidate.activity_ends_at else {
+            return (false, None);
+        };
+        let interval = triggers::retry_interval_mins(
+            character_id,
+            anchor,
+            proactive.re_engage_retry_min_minutes,
+            proactive.re_engage_retry_max_minutes,
+            "re_engage_char",
+        );
+        let Some(bucket) = triggers::retry_bucket_index(now, anchor, interval) else {
+            return (false, None);
+        };
+        let final_p = (availability_base * factor).clamp(0.0, 1.0);
+        let (pass, roll) = triggers::retry_bucket_probability_passes(
+            character_id,
+            anchor,
+            bucket,
+            "re_engage_char",
+            final_p,
+        );
+        if !pass {
+            tracing::debug!(
+                conversation_id = %candidate.id,
+                bucket,
+                interval,
+                final_p,
+                roll,
+                "re_engage: char_busy bucket miss"
+            );
+            return (false, None);
+        }
         tracing::debug!(
             conversation_id = %candidate.id,
             activity_ends_at = ?candidate.activity_ends_at,
-            "re_engage eligible: paused_char_busy after activity end"
+            bucket,
+            interval,
+            final_p,
+            "re_engage eligible: paused_char_busy"
         );
         return (true, None);
     }
@@ -517,20 +508,60 @@ fn evaluate_re_engage(
         candidate.status,
         candidate.paused_at,
         now,
-        user_busy_curve,
+        &proactive.user_busy_reengage,
     ) {
-        if curve_p > 0.0 {
+        if curve_p <= 0.0 {
+            tracing::trace!(
+                conversation_id = %candidate.id,
+                "re_engage: paused_user_busy still in min_delay"
+            );
+            return (false, None);
+        }
+        let Some(anchor) = candidate.paused_at else {
+            return (false, None);
+        };
+        // 从曲线开始生效（min_delay 之后）起算重试桶。
+        let curve_start = anchor
+            + chrono::Duration::minutes(i64::from(proactive.user_busy_reengage.min_delay_minutes));
+        let interval = triggers::retry_interval_mins(
+            character_id,
+            curve_start,
+            proactive.re_engage_retry_min_minutes,
+            proactive.re_engage_retry_max_minutes,
+            "re_engage_user",
+        );
+        let Some(bucket) = triggers::retry_bucket_index(now, curve_start, interval) else {
+            return (false, None);
+        };
+        let final_p = (curve_p * availability_base * factor).clamp(0.0, 1.0);
+        let (pass, roll) = triggers::retry_bucket_probability_passes(
+            character_id,
+            curve_start,
+            bucket,
+            "re_engage_user",
+            final_p,
+        );
+        if !pass {
             tracing::debug!(
                 conversation_id = %candidate.id,
+                bucket,
+                interval,
                 curve_p,
-                "re_engage eligible: paused_user_busy curve"
+                final_p,
+                roll,
+                "re_engage: user_busy bucket miss"
             );
-            return (true, Some(curve_p));
+            return (false, Some(curve_p));
         }
-        tracing::trace!(
+        tracing::debug!(
             conversation_id = %candidate.id,
-            "re_engage: paused_user_busy still in min_delay"
+            curve_p,
+            bucket,
+            interval,
+            final_p,
+            "re_engage eligible: paused_user_busy"
         );
+        return (true, Some(curve_p));
     }
     (false, None)
 }
@@ -539,25 +570,61 @@ fn evaluate_silence_wake(
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
     availability: crate::domain::Availability,
-    silence_after_hours: f64,
+    proactive: &crate::domain::persona::ProactiveConfig,
+    availability_base: f64,
 ) -> bool {
-    let eligible = triggers::is_silence_wake_eligible(
+    if !triggers::is_silence_wake_eligible(
         candidate.status,
         candidate.last_user_message_at,
         now,
-        silence_after_hours,
+        proactive.silence_after_hours,
         availability,
+    ) {
+        return false;
+    }
+    let Some(last_user) = candidate.last_user_message_at else {
+        return false;
+    };
+    let silence_ms = (proactive.silence_after_hours * 3_600_000.0).round() as i64;
+    let anchor = last_user + chrono::Duration::milliseconds(silence_ms);
+    let interval = triggers::retry_interval_mins(
+        &candidate.character_id,
+        anchor,
+        proactive.silence_wake_retry_min_minutes,
+        proactive.silence_wake_retry_max_minutes,
+        "silence_wake",
     );
-    if eligible {
+    let Some(bucket) = triggers::retry_bucket_index(now, anchor, interval) else {
+        return false;
+    };
+    let final_p = (availability_base * proactive.probability_factor).clamp(0.0, 1.0);
+    let (pass, roll) = triggers::retry_bucket_probability_passes(
+        &candidate.character_id,
+        anchor,
+        bucket,
+        "silence_wake",
+        final_p,
+    );
+    if !pass {
         tracing::debug!(
             conversation_id = %candidate.id,
-            last_user_message_at = ?candidate.last_user_message_at,
-            silence_after_hours,
-            availability = %availability,
-            "silence_wake eligible"
+            bucket,
+            interval,
+            final_p,
+            roll,
+            "silence_wake: bucket miss"
         );
+        return false;
     }
-    eligible
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        last_user_message_at = ?candidate.last_user_message_at,
+        silence_after_hours = proactive.silence_after_hours,
+        bucket,
+        interval,
+        "silence_wake eligible"
+    );
+    true
 }
 
 async fn evaluate_schedule_change(

@@ -173,18 +173,77 @@ pub fn schedule_change_probability_passes(
     probability_factor: f64,
 ) -> (bool, f64, f64) {
     let final_p = (tendency.max(0.0) * availability_base * probability_factor.max(0.0)).clamp(0.0, 1.0);
-    let roll = schedule_change_roll(character_id, slot_started_at);
+    let roll = hash_unit(&[
+        character_id.as_bytes(),
+        &slot_started_at.timestamp_millis().to_le_bytes(),
+        b"schedule_change",
+    ]);
     (roll < final_p, final_p, roll)
 }
 
-fn schedule_change_roll(character_id: &str, slot_started_at: DateTime<Utc>) -> f64 {
+/// 为本 episode 固定一个重试间隔（分钟），落在 `[min, max]`。
+pub fn retry_interval_mins(
+    character_id: &str,
+    anchor: DateTime<Utc>,
+    min_mins: u32,
+    max_mins: u32,
+    salt: &str,
+) -> u32 {
+    let min = min_mins.min(max_mins).max(1);
+    let max = min_mins.max(max_mins).max(1);
+    if min == max {
+        return min;
+    }
+    let unit = hash_unit(&[
+        character_id.as_bytes(),
+        &anchor.timestamp_millis().to_le_bytes(),
+        salt.as_bytes(),
+        b"interval",
+    ]);
+    min + ((unit * f64::from(max - min + 1)) as u32).min(max - min)
+}
+
+/// 距 `anchor` 已经历的第几个重试桶；尚未到锚点则 `None`。
+pub fn retry_bucket_index(
+    now: DateTime<Utc>,
+    anchor: DateTime<Utc>,
+    interval_mins: u32,
+) -> Option<u64> {
+    let elapsed = now.signed_duration_since(anchor).num_minutes();
+    if elapsed < 0 {
+        return None;
+    }
+    let interval = i64::from(interval_mins.max(1));
+    Some((elapsed / interval) as u64)
+}
+
+/// 某重试桶的一次确定性概率抽样。
+pub fn retry_bucket_probability_passes(
+    character_id: &str,
+    anchor: DateTime<Utc>,
+    bucket: u64,
+    salt: &str,
+    final_p: f64,
+) -> (bool, f64) {
+    let final_p = final_p.clamp(0.0, 1.0);
+    let roll = hash_unit(&[
+        character_id.as_bytes(),
+        &anchor.timestamp_millis().to_le_bytes(),
+        &bucket.to_le_bytes(),
+        salt.as_bytes(),
+        b"roll",
+    ]);
+    (roll < final_p, roll)
+}
+
+fn hash_unit(parts: &[&[u8]]) -> f64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
-    character_id.hash(&mut hasher);
-    slot_started_at.timestamp_millis().hash(&mut hasher);
-    "schedule_change".hash(&mut hasher);
+    for part in parts {
+        part.hash(&mut hasher);
+    }
     (hasher.finish() % 10_000) as f64 / 10_000.0
 }
 

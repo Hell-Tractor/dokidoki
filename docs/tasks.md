@@ -213,22 +213,18 @@
 
 #### 触发器（逐个实现）
 
-- [x] **`pre_sleep`**  
-  - 即将切入 `kind=sleep` **之前**发晚安类收束（不在 sleep 槽内刷屏）  
-  - 每角色每日至多一次；计入 proactive 日上限与 `proactive_logs`（`trigger_type=pre_sleep`）  
-  - 若当时 `paused_char_busy`：Prompt 按性格决定是否顺便问用户忙完没  
-  - 覆盖忙段与 sleep 首尾相接、不宜立刻 `re_engage` 开聊的边界；睡醒后再 `daily_greeting` / `re_engage`  
-  - Prompt：T-21（及可选附加关心）
-- [x] **`daily_greeting`（合并 `special_date`）**  
-  - 日程 `kind=wake` 段内 30–60 分钟窗；每角色每日至多一次  
+- [x] **`pre_sleep`**：切入 sleep 前，在 `[min,max]` 分钟处**固定抽一时刻**，到点必发（每日一次）；`paused_char_busy` 可叠关心  
+- [x] **`daily_greeting`（合并 `special_date`）**：wake 段内在 `[min,max]` 分钟处**固定抽一时刻**，到点必发（每日一次）  
   - 同轮可叠 T-18：用户生日；公共节日 **暂缓**
 - [~] ~~节日地区 / Nager~~（暂缓，见下）
 - [x] **`re_engage`**
-  - [x] `paused_char_busy`：`now ≥ activity_ends_at`，非 sleep，再走可用性/概率闸门 → `active`
-  - [x] `paused_user_busy`：按 `user_busy_reengage` 的 \(P(t)\) × 全局闸门抽样 → `active`
-- [x] **`silence_wake`**：仅 `status=paused`；距用户末条 ≥ `silence_after_hours`
+  - [x] `paused_char_busy`：`now ≥ activity_ends_at` 后，按 persona `re_engage_retry_[min|max]_minutes` 均匀定间隔，**每间隔桶抽一次**
+  - [x] `paused_user_busy`：曲线 \(P(t)\) × 全局闸门，同样按重试间隔分桶抽样
+- [x] **`silence_wake`**：仅 `status=paused`；沉默达标后按 `silence_wake_retry_[min|max]_minutes` 均匀定间隔，**每间隔桶抽一次**
 - [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却
-- [x] **`schedule_change`**：`status=active`；刚进入 `kind=custom` 段且在 lead-in 窗内；availability ≥ medium；`persona.proactive.schedule_change_probability` × 全局闸门（每段一次确定性抽样）；T-16
+- [x] **`schedule_change`**：`status=active`；刚进入 `kind=custom`；`schedule_change_probability` × 闸门（每段一次）；T-16
+
+> 概率未中的触发不占优先级：同 tick 可继续尝试更低优先级触发。
 
 #### Prompt
 

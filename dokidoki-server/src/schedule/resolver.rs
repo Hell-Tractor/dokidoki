@@ -179,20 +179,37 @@ pub(crate) fn minutes_since_slot_start(now: NaiveTime, start: NaiveTime) -> u32 
     delta as u32
 }
 
-/// 每日问候触发窗长度（分钟），落在 `[window_min, window_max]`。
-pub(crate) fn daily_greeting_window_mins(
+/// 在 `[window_min, window_max]` 内确定性抽一个整数分钟。
+pub(crate) fn pick_mins_in_range(
     character_id: &str,
     local_date: NaiveDate,
     window_min: u32,
     window_max: u32,
+    salt: &str,
 ) -> u32 {
     let min = window_min.min(window_max);
     let max = window_min.max(window_max);
     if min == max {
         return min;
     }
-    let unit = deterministic_unit(character_id, local_date, "daily_greeting_window");
+    let unit = deterministic_unit(character_id, local_date, salt);
     min + ((unit * f64::from(max - min + 1)) as u32).min(max - min)
+}
+
+/// 每日问候：在 `[window_min, window_max]` 内固定抽一个触发时刻（起床段内分钟）。
+pub fn daily_greeting_fire_mins(
+    character_id: &str,
+    local_date: NaiveDate,
+    window_min: u32,
+    window_max: u32,
+) -> u32 {
+    pick_mins_in_range(
+        character_id,
+        local_date,
+        window_min,
+        window_max,
+        "daily_greeting_fire",
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,15 +258,15 @@ pub fn current_wakeup_slot(
     }))
 }
 
-/// 是否在起床段开头的随机问候窗内：`minutes_into_slot < window_mins`。
-pub fn in_daily_greeting_window(
+/// 是否已到固定问候时刻：`minutes_into_slot >= fire_at`（到点后直至今日已发前持续可触发一次）。
+pub fn at_daily_greeting_fire_time(
     status: &WakeupSlotStatus,
     character_id: &str,
     window_min: u32,
     window_max: u32,
 ) -> bool {
-    let window = daily_greeting_window_mins(character_id, status.local_date, window_min, window_max);
-    status.minutes_into_slot < window
+    let fire_at = daily_greeting_fire_mins(character_id, status.local_date, window_min, window_max);
+    status.minutes_into_slot >= fire_at
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,22 +371,6 @@ pub struct PreSleepStatus {
     pub sleep_local_date: NaiveDate,
 }
 
-/// 睡前窗长度（分钟），落在 `[window_min, window_max]`。
-pub(crate) fn pre_sleep_window_mins(
-    character_id: &str,
-    local_date: NaiveDate,
-    window_min: u32,
-    window_max: u32,
-) -> u32 {
-    let min = window_min.min(window_max);
-    let max = window_min.max(window_max);
-    if min == max {
-        return min;
-    }
-    let unit = deterministic_unit(character_id, local_date, "pre_sleep_window");
-    min + ((unit * f64::from(max - min + 1)) as u32).min(max - min)
-}
-
 /// 若即将切入 `kind=sleep`（且当前不在 sleep 内）则返回距 sleep 开始的分钟数。
 pub fn upcoming_pre_sleep(
     schedule: &Schedule,
@@ -404,20 +405,36 @@ pub fn upcoming_pre_sleep(
     }))
 }
 
-/// 是否落在 sleep 开始前的随机短窗内。
-pub fn in_pre_sleep_window(
+/// 睡前：在 sleep 前 `[window_min, window_max]` 分钟处固定抽一个触发点。
+pub fn pre_sleep_fire_mins_before(
+    character_id: &str,
+    local_date: NaiveDate,
+    window_min: u32,
+    window_max: u32,
+) -> u32 {
+    pick_mins_in_range(
+        character_id,
+        local_date,
+        window_min,
+        window_max,
+        "pre_sleep_fire",
+    )
+}
+
+/// 是否已到固定睡前时刻：`minutes_until_sleep <= fire_before`。
+pub fn at_pre_sleep_fire_time(
     status: &PreSleepStatus,
     character_id: &str,
     window_min: u32,
     window_max: u32,
 ) -> bool {
-    let window = pre_sleep_window_mins(
+    let fire_before = pre_sleep_fire_mins_before(
         character_id,
         status.sleep_local_date,
         window_min,
         window_max,
     );
-    status.minutes_until_sleep < window
+    status.minutes_until_sleep <= fire_before
 }
 
 /// 在今日与明日模板中找下一场尚未开始的 sleep。
@@ -542,7 +559,7 @@ mod tests {
         let status = current_wakeup_slot(&schedule, now).unwrap().unwrap();
         assert_eq!(status.activity, "早餐");
         assert_eq!(status.minutes_into_slot, 20);
-        assert!(in_daily_greeting_window(&status, "char-1", 30, 60));
+        assert!(at_daily_greeting_fire_time(&status, "char-1", 0, 10));
     }
 
     #[test]
@@ -575,15 +592,15 @@ mod tests {
     }
 
     #[test]
-    fn greeting_window_is_deterministic_in_range() {
+    fn greeting_fire_time_is_deterministic_in_range() {
         let date = NaiveDate::from_ymd_opt(2026, 7, 13).unwrap();
         for _ in 0..20 {
-            let mins = daily_greeting_window_mins("char-x", date, 30, 60);
+            let mins = daily_greeting_fire_mins("char-x", date, 30, 60);
             assert!((30..=60).contains(&mins));
         }
         assert_eq!(
-            daily_greeting_window_mins("char-x", date, 30, 60),
-            daily_greeting_window_mins("char-x", date, 30, 60)
+            daily_greeting_fire_mins("char-x", date, 30, 60),
+            daily_greeting_fire_mins("char-x", date, 30, 60)
         );
     }
 
@@ -598,7 +615,7 @@ mod tests {
             status.sleep_local_date,
             NaiveDate::from_ymd_opt(2026, 7, 13).unwrap()
         );
-        assert!(in_pre_sleep_window(&status, "char-1", 10, 30));
+        assert!(at_pre_sleep_fire_time(&status, "char-1", 10, 30));
     }
 
     #[test]

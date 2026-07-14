@@ -70,10 +70,10 @@ default_max_per_day = 20
 availability_high = 0.45
 availability_medium = 0.25
 availability_low = 0.05
-# 起床活动段开始后，在 [min, max] 分钟内随机取窗；进窗后至多每日问候一次
+# 起床后在 [min, max] 分钟内固定抽一个触发时刻（确定性，到点必发一次）
 daily_greeting_window_min_mins = 0
 daily_greeting_window_max_mins = 15
-# sleep 段开始前，在 [min, max] 分钟内随机取窗；进窗后至多发一次 pre_sleep
+# sleep 前在 [min, max] 分钟处固定抽一个触发点（确定性，到点必发一次）
 pre_sleep_window_min_mins = 10
 pre_sleep_window_max_mins = 30
 # custom 活动段开始后，在 [min, max] 分钟内随机取窗；每段至多一次 schedule_change
