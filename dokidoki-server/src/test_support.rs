@@ -121,16 +121,71 @@ pub async fn set_character_avatar_path(
         .expect("set character avatar_path");
 }
 
+/// 测试角色默认人设；字段显式写出，避免依赖 `Persona` 反序列化缺省。
+fn test_persona_json() -> serde_json::Value {
+    serde_json::json!({
+        "personality_traits": ["友善"],
+        "speech_style": {
+            "tone": "轻松",
+            "catchphrases": [],
+            "forbidden": []
+        },
+        "reply_delay_factor": [1.0, 1.0],
+        "conversation_behavior": {
+            "skip_reply_tendency": "medium",
+            "end_topic_freely": false,
+            "re_engage_after_minutes": 120,
+            "pause_on_farewell": true
+        },
+        "proactive": {
+            "silence_after_hours": 8,
+            "probability_factor": 1.0
+        },
+        "conversation_style": "测试用标准人设"
+    })
+}
+
+/// 全天候可解析的最小日程（每天覆盖 00:00–23:59）。
+fn test_schedule_json() -> serde_json::Value {
+    let day = serde_json::json!([
+        {
+            "start": "00:00",
+            "end": "23:59",
+            "activity": "在线",
+            "availability": "high",
+            "mood": "平静"
+        }
+    ]);
+    serde_json::json!({
+        "timezone": "Asia/Shanghai",
+        "weekly_template": {
+            "monday": day.clone(),
+            "tuesday": day.clone(),
+            "wednesday": day.clone(),
+            "thursday": day.clone(),
+            "friday": day.clone(),
+            "saturday": day.clone(),
+            "sunday": day
+        },
+        "random_events": {
+            "probability": 0.0,
+            "pool": []
+        }
+    })
+}
+
 pub async fn insert_test_character(pool: &MySqlPool, name: &str) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         r#"
         INSERT INTO characters (id, name, persona_json, schedule_json)
-        VALUES (?, ?, '{}', '{}')
+        VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON))
         "#,
     )
     .bind(&id)
     .bind(name)
+    .bind(test_persona_json().to_string())
+    .bind(test_schedule_json().to_string())
     .execute(pool)
     .await
     .expect("insert test character");

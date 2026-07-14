@@ -27,10 +27,12 @@ async fn create_test_conversation(
     app: &mut dokidoki_server::test_support::TestApp,
     token: &str,
 ) -> String {
+    // 破冰走 FakeLlm；[NO_REPLY] → 无气泡 → rollback，会话保持无角色消息。
+    // 再显式标记 first_contact_done，避免后续 get_or_create 重复触发破冰。
     post_json(
         app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY]"] }),
+        json!({ "responses": ["[NO_REPLY]"] }),
     )
     .await;
 
@@ -43,8 +45,15 @@ async fn create_test_conversation(
     )
     .await;
 
+    let conversation_id = body["data"]["id"].as_str().unwrap().to_owned();
     sleep(Duration::from_millis(150)).await;
-    body["data"]["id"].as_str().unwrap().to_owned()
+    sqlx::query("UPDATE conversations SET first_contact_done = 1 WHERE id = ?")
+        .bind(&conversation_id)
+        .execute(&app.pool)
+        .await
+        .expect("mark first_contact_done after skipped icebreaker");
+
+    conversation_id
 }
 
 #[tokio::test]
@@ -286,6 +295,34 @@ async fn farewell_in_winding_down_moves_to_paused() {
     let token = register_and_token(&mut app).await;
     let conversation_id = create_test_conversation(&mut app, &token).await;
 
+    let character_id: String =
+        sqlx::query_scalar("SELECT character_id FROM conversations WHERE id = ?")
+            .bind(&conversation_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+
+    // 显式断言契约：pause_on_farewell=true 时 winding_down + 道别 → paused
+    sqlx::query(
+        r#"
+        UPDATE characters
+        SET persona_json = CAST(? AS JSON)
+        WHERE id = ?
+        "#,
+    )
+    .bind(
+        json!({
+            "conversation_behavior": {
+                "pause_on_farewell": true
+            }
+        })
+        .to_string(),
+    )
+    .bind(&character_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
     sqlx::query("UPDATE conversations SET status = 'winding_down' WHERE id = ?")
         .bind(&conversation_id)
         .execute(&app.pool)
@@ -497,7 +534,7 @@ async fn read_receipt_arrives_before_character_reply() {
 
     let user_message_id = send_body["data"]["id"].as_str().unwrap();
 
-    sleep(Duration::from_millis(800)).await;
+    sleep(Duration::from_millis(300)).await;
 
     let read_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
         "SELECT read_at FROM messages WHERE id = ?",
