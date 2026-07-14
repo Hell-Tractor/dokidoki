@@ -3,7 +3,6 @@ pub mod scheduler;
 pub mod types;
 
 use chrono::{Datelike, Utc};
-use serde_json::Value;
 use sqlx::MySqlPool;
 
 use crate::{
@@ -13,25 +12,36 @@ use crate::{
 };
 
 pub use resolver::resolve;
+pub use resolver::{current_wakeup_slot, in_daily_greeting_window, WakeupSlotStatus};
 pub use scheduler::run as run_scheduler;
-pub use types::CurrentState;
+pub use types::{CurrentState, Schedule, SlotKind};
 
 /// 按 `schedule_json` 解析当前状态，写回 `character_states` 并返回。
 pub async fn refresh_character_state(
     pool: &MySqlPool,
     character_id: &str,
 ) -> Result<CurrentState, AppError> {
-    let schedule = character_queries::find_schedule_json(pool, character_id)
+    let raw = character_queries::find_schedule_json(pool, character_id)
         .await?
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
-    if schedule.is_null() || schedule.as_object().is_some_and(|o| o.is_empty()) {
-        tracing::debug!(
-            character_id = %character_id,
-            "schedule refresh: empty schedule_json, using default state"
-        );
-        return Ok(default_state());
-    }
+    let schedule = match Schedule::try_from_json_value(raw) {
+        Ok(None) => {
+            tracing::debug!(
+                character_id = %character_id,
+                "schedule refresh: empty schedule_json, using default state"
+            );
+            return Ok(default_state());
+        }
+        Ok(Some(schedule)) => schedule,
+        Err(err) => {
+            tracing::warn!(
+                character_id = %character_id,
+                "schedule refresh skipped: invalid schedule_json: {err}"
+            );
+            return Err(err);
+        }
+    };
 
     let persisted = state_queries::find_by_character_id(pool, character_id).await?;
     let (persisted_event, persisted_event_date) = match &persisted {
@@ -45,6 +55,13 @@ pub async fn refresh_character_state(
         persisted_event,
         persisted_event_date,
     )?;
+
+    tracing::debug!(
+        character_id = %character_id,
+        activity = %resolved.current.activity,
+        availability = %resolved.current.availability,
+        "schedule state refreshed"
+    );
 
     state_queries::upsert(
         pool,
@@ -80,24 +97,32 @@ pub async fn load_current_state_for_prompt(
     pool: &MySqlPool,
     character_id: &str,
 ) -> Result<Option<CurrentState>, AppError> {
-    let schedule = character_queries::find_schedule_json(pool, character_id).await?;
-    let Some(schedule) = schedule else {
+    let raw = character_queries::find_schedule_json(pool, character_id).await?;
+    let Some(raw) = raw else {
+        tracing::trace!(character_id = %character_id, "prompt schedule: no schedule_json");
         return Ok(None);
     };
-    if schedule.is_null() || schedule.as_object().is_some_and(|o| o.is_empty()) {
-        return Ok(None);
-    }
+    let schedule = match Schedule::try_from_json_value(raw) {
+        Ok(None) => {
+            tracing::trace!(character_id = %character_id, "prompt schedule: empty schedule_json");
+            return Ok(None);
+        }
+        Ok(Some(schedule)) => schedule,
+        Err(err) => {
+            tracing::warn!(
+                character_id = %character_id,
+                "prompt schedule load skipped: invalid schedule_json: {err}"
+            );
+            return Ok(None);
+        }
+    };
 
     let row = state_queries::find_prompt_fields(pool, character_id).await?;
     let Some(row) = row else {
         return Ok(Some(refresh_character_state(pool, character_id).await?));
     };
 
-    let tz_str = schedule
-        .get("timezone")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AppError::bad_request("schedule_json 缺少 timezone"))?;
-    let tz = parse_timezone(tz_str)?;
+    let tz = parse_timezone(&schedule.timezone)?;
     let local = Utc::now().with_timezone(&tz);
 
     Ok(Some(CurrentState {

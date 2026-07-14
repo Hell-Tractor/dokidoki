@@ -68,6 +68,8 @@ impl Config {
                 availability_high: 0.45,
                 availability_medium: 0.25,
                 availability_low: 0.05,
+                daily_greeting_window_min_mins: 30,
+                daily_greeting_window_max_mins: 60,
             },
         }
     }
@@ -206,6 +208,10 @@ pub struct Proactive {
     pub availability_medium: f64,
     /// availability=low
     pub availability_low: f64,
+    /// 每日问候：起床段起始后触发窗下限（分钟）
+    pub daily_greeting_window_min_mins: u32,
+    /// 每日问候：起床段起始后触发窗上限（分钟）
+    pub daily_greeting_window_max_mins: u32,
 }
 
 impl Proactive {

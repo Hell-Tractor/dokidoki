@@ -55,51 +55,51 @@ VALUES (
         "timezone": "Asia/Shanghai",
         "weekly_template": {
             "monday": [
-                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气"},
-                {"start": "09:00", "end": "13:00", "activity": "录音棚配音", "availability": "low", "mood": "专业"},
-                {"start": "13:00", "end": "17:00", "activity": "学校补学分或经纪事务", "availability": "medium", "mood": "认真"},
-                {"start": "17:00", "end": "22:30", "activity": "回家做饭等哥哥", "availability": "high", "mood": "开心黏人"},
-                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "09:00", "end": "13:00", "activity": "录音棚配音", "availability": "low", "mood": "专业", "kind": "custom"},
+                {"start": "13:00", "end": "17:00", "activity": "学校补学分或经纪事务", "availability": "medium", "mood": "认真", "kind": "custom"},
+                {"start": "17:00", "end": "22:30", "activity": "回家做饭等哥哥", "availability": "high", "mood": "开心黏人", "kind": "custom"},
+                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "tuesday": [
-                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气"},
-                {"start": "09:00", "end": "14:00", "activity": "录音棚配音", "availability": "low", "mood": "专注"},
-                {"start": "14:00", "end": "18:00", "activity": "休息或浏览稿件", "availability": "medium", "mood": "放松"},
-                {"start": "18:00", "end": "22:30", "activity": "在家陪哥哥", "availability": "high", "mood": "甜蜜"},
-                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "09:00", "end": "14:00", "activity": "录音棚配音", "availability": "low", "mood": "专注", "kind": "custom"},
+                {"start": "14:00", "end": "18:00", "activity": "休息或浏览稿件", "availability": "medium", "mood": "放松", "kind": "custom"},
+                {"start": "18:00", "end": "22:30", "activity": "在家陪哥哥", "availability": "high", "mood": "甜蜜", "kind": "custom"},
+                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "wednesday": [
-                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气"},
-                {"start": "09:00", "end": "12:00", "activity": "录音棚配音", "availability": "low", "mood": "专业"},
-                {"start": "12:00", "end": "16:00", "activity": "学校或线上粉丝互动准备", "availability": "medium", "mood": "干练"},
-                {"start": "16:00", "end": "22:30", "activity": "回家做饭聊天", "availability": "high", "mood": "黏人"},
-                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "09:00", "end": "12:00", "activity": "录音棚配音", "availability": "low", "mood": "专业", "kind": "custom"},
+                {"start": "12:00", "end": "16:00", "activity": "学校或线上粉丝互动准备", "availability": "medium", "mood": "干练", "kind": "custom"},
+                {"start": "16:00", "end": "22:30", "activity": "回家做饭聊天", "availability": "high", "mood": "黏人", "kind": "custom"},
+                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "thursday": [
-                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气"},
-                {"start": "09:00", "end": "15:00", "activity": "录音棚或宣传活动", "availability": "low", "mood": "忙碌"},
-                {"start": "15:00", "end": "18:00", "activity": "补眠", "availability": "medium", "mood": "慵懒"},
-                {"start": "18:00", "end": "22:30", "activity": "在家照顾哥哥", "availability": "high", "mood": "满足"},
-                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "09:00", "end": "15:00", "activity": "录音棚或宣传活动", "availability": "low", "mood": "忙碌", "kind": "custom"},
+                {"start": "15:00", "end": "18:00", "activity": "补眠", "availability": "medium", "mood": "慵懒", "kind": "custom"},
+                {"start": "18:00", "end": "22:30", "activity": "在家照顾哥哥", "availability": "high", "mood": "满足", "kind": "custom"},
+                {"start": "22:30", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "friday": [
-                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气"},
-                {"start": "09:00", "end": "13:00", "activity": "录音棚配音", "availability": "low", "mood": "专业"},
-                {"start": "13:00", "end": "17:00", "activity": "学生会事务或学校", "availability": "medium", "mood": "认真"},
-                {"start": "17:00", "end": "23:00", "activity": "周末前在家黏着哥哥", "availability": "high", "mood": "兴奋"},
-                {"start": "23:00", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "07:00", "end": "09:00", "activity": "做早餐打理家务", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "09:00", "end": "13:00", "activity": "录音棚配音", "availability": "low", "mood": "专业", "kind": "custom"},
+                {"start": "13:00", "end": "17:00", "activity": "学生会事务或学校", "availability": "medium", "mood": "认真", "kind": "custom"},
+                {"start": "17:00", "end": "23:00", "activity": "周末前在家黏着哥哥", "availability": "high", "mood": "兴奋", "kind": "custom"},
+                {"start": "23:00", "end": "07:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "saturday": [
-                {"start": "08:00", "end": "10:00", "activity": "大扫除做午饭", "availability": "medium", "mood": "元气"},
-                {"start": "10:00", "end": "14:00", "activity": "偶尔录音或休息", "availability": "medium", "mood": "悠闲"},
-                {"start": "14:00", "end": "23:00", "activity": "和哥哥在家", "availability": "high", "mood": "幸福"},
-                {"start": "23:00", "end": "08:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "08:00", "end": "10:00", "activity": "大扫除做午饭", "availability": "medium", "mood": "元气", "kind": "wake"},
+                {"start": "10:00", "end": "14:00", "activity": "偶尔录音或休息", "availability": "medium", "mood": "悠闲", "kind": "custom"},
+                {"start": "14:00", "end": "23:00", "activity": "和哥哥在家", "availability": "high", "mood": "幸福", "kind": "custom"},
+                {"start": "23:00", "end": "08:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ],
             "sunday": [
-                {"start": "08:00", "end": "11:00", "activity": "做便当家务", "availability": "medium", "mood": "温柔"},
-                {"start": "11:00", "end": "16:00", "activity": "休息或准备下周工作", "availability": "medium", "mood": "平静"},
-                {"start": "16:00", "end": "22:00", "activity": "陪哥哥预习下周", "availability": "high", "mood": "黏人"},
-                {"start": "22:00", "end": "08:00", "activity": "睡觉", "availability": "low", "mood": "困倦"}
+                {"start": "08:00", "end": "11:00", "activity": "做便当家务", "availability": "medium", "mood": "温柔", "kind": "wake"},
+                {"start": "11:00", "end": "16:00", "activity": "休息或准备下周工作", "availability": "medium", "mood": "平静", "kind": "custom"},
+                {"start": "16:00", "end": "22:00", "activity": "陪哥哥预习下周", "availability": "high", "mood": "黏人", "kind": "custom"},
+                {"start": "22:00", "end": "08:00", "activity": "睡觉", "availability": "low", "mood": "困倦", "kind": "sleep"}
             ]
         },
         "random_events": {

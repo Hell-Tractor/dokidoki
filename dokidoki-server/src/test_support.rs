@@ -153,7 +153,8 @@ fn test_schedule_json() -> serde_json::Value {
             "end": "23:59",
             "activity": "在线",
             "availability": "high",
-            "mood": "平静"
+            "mood": "平静",
+            "kind": "custom"
         }
     ]);
     serde_json::json!({

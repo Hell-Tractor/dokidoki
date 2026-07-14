@@ -68,3 +68,6 @@ default_max_per_day = 20
 availability_high = 0.45
 availability_medium = 0.25
 availability_low = 0.05
+# 起床活动段开始后，在 [min, max] 分钟内随机取窗；进窗后至多每日问候一次
+daily_greeting_window_min_mins = 0
+daily_greeting_window_max_mins = 15

@@ -189,7 +189,7 @@
 
 #### 触发器（逐个实现）
 
-- [ ] **`daily_greeting`（合并 `special_date`）**  
+- [x] **`daily_greeting`（合并 `special_date`）**  
   - 日程起床段内 30–60 分钟窗随机触发；每角色每日至多一次（调度与现方案不变）  
   - **不单独跑 special_date tick**；同轮问候可叠加 T-18 语境：  
     - 用户生日（`users.birthday`，按用户时区本地日）  
@@ -203,7 +203,8 @@
 
 #### Prompt
 
-- [ ] 落地 T-12～T-18（`daily_greeting` 与 special 合并时同轮可叠 T-13 + T-18）
+- [x] T-12 / T-13 / T-18（`daily_greeting`；生日可叠 T-18；其余 T-14～T-17 随对应触发器落地）
+- [ ] 落地 T-14～T-17 场景模板
 
 #### P2（暂不做）
 

@@ -7,7 +7,7 @@ use crate::{
     llm::{ChatRequest, LlmMessage},
     prompt::{
         build_icebreaker_system_prompt, build_system_prompt, format_icebreaker_user_message,
-        CurrentStatePrompt,
+        format_proactive_scene, format_proactive_user_message, CurrentStatePrompt,
     },
     schedule,
 };
@@ -113,7 +113,7 @@ pub async fn build_icebreaker_request(
     })
 }
 
-/// 主动消息 Prompt（骨架：T-01～T-05 + 临时场景说明；正式 T-12～T-18 后续落地）。
+/// 主动消息 Prompt（T-01～T-05 + 场景 T-13/T-18… + User T-12）。
 pub async fn build_proactive_request(
     pool: &MySqlPool,
     user_id: &str,
@@ -121,6 +121,7 @@ pub async fn build_proactive_request(
     turn_id: &str,
     trigger: &str,
     keep_recent_turns: u32,
+    special_date_detail: Option<&str>,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
@@ -133,9 +134,8 @@ pub async fn build_proactive_request(
         &ctx.memories,
         ctx.summary.as_deref(),
     );
-    system.push_str("\n\n【主动场景：占位】\n");
-    system.push_str("你正在主动找对方说话。语气符合人设与当前状态。\n");
-    system.push_str("输出格式用 [REPLY]，1～3 条短气泡。不要提系统或任务。\n");
+    system.push_str("\n\n");
+    system.push_str(&format_proactive_scene(trigger, special_date_detail));
 
     let recent =
         messages::list_text_messages_for_recent_turns(pool, conversation_id, keep_recent_turns)
@@ -173,9 +173,7 @@ pub async fn build_proactive_request(
 
     llm_messages.push(LlmMessage {
         role: "user".into(),
-        content: format!(
-            "【系统任务：主动发起消息】\n触发类型：{trigger}\n请由你主动给对方发消息，不要等用户先说话。"
-        ),
+        content: format_proactive_user_message(trigger),
     });
 
     Ok(ChatRequest {

@@ -1,4 +1,4 @@
-use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T19};
+use super::templates::{T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T18, T19};
 use crate::domain::persona::Persona;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +97,32 @@ pub fn build_icebreaker_system_prompt(
 
 pub fn format_icebreaker_user_message() -> &'static str {
     "（系统）请发起初次对话。"
+}
+
+/// 主动消息场景附加（System 后半）；按触发类型拼接 T-13～T-18。
+pub fn format_proactive_scene(
+    trigger: &str,
+    special_date_detail: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+    match trigger {
+        "daily_greeting" => {
+            parts.push(T13.to_owned());
+            if let Some(detail) = special_date_detail.filter(|d| !d.is_empty()) {
+                parts.push(T18.replace("{special_date_detail}", detail));
+            }
+        }
+        _ => {
+            parts.push(format!(
+                "【主动场景】\n你正在主动找对方说话（触发：{trigger}）。语气符合人设与当前状态。"
+            ));
+        }
+    }
+    parts.join("\n\n")
+}
+
+pub fn format_proactive_user_message(trigger: &str) -> String {
+    T12.replace("{proactive_trigger}", trigger)
 }
 
 pub fn format_current_state_section(state: &CurrentStatePrompt) -> String {
@@ -222,5 +248,17 @@ mod tests {
         let prompt = build_system_prompt(&persona, "小咲", "阿明", None, &[], None);
         assert!(prompt.contains("【性格倾向】"));
         assert!(prompt.contains("比较在意对方"));
+    }
+
+    #[test]
+    fn proactive_daily_greeting_scene_includes_t13_and_optional_t18() {
+        let scene = format_proactive_scene("daily_greeting", None);
+        assert!(scene.contains("每日问候"));
+        assert!(!scene.contains("特殊日期"));
+
+        let with_special = format_proactive_scene("daily_greeting", Some("对方生日（07-11）"));
+        assert!(with_special.contains("每日问候"));
+        assert!(with_special.contains("特殊日期"));
+        assert!(with_special.contains("对方生日（07-11）"));
     }
 }

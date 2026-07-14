@@ -1,34 +1,31 @@
 //! 主动消息调度（M-07）：tick + 闸门 + 触发求值 + 投递。
-//!
-//! 本阶段完成骨架与闸门；各类触发器仍为 stub（不命中），故生产 tick 不会发消息。
 
 mod gates;
 mod triggers;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{TimeZone, Utc};
 use uuid::Uuid;
 
 use crate::{
     chat::{parser, ChatService},
     db::queries::{
-        character_states, characters, conversations as conversation_queries, proactive_logs,
+        character_states, characters, conversations as conversation_queries, proactive_logs, users,
     },
     error::AppError,
+    schedule::{self, current_wakeup_slot, in_daily_greeting_window},
+    time::parse_timezone,
     utils::{OsUnitRng, UnitRng},
 };
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
-pub use triggers::{TriggerContext, TriggerType};
+pub use triggers::{DailyGreetingExtras, TriggerContext, TriggerType};
 
 /// 与 schedule refresh 同循环调用：遍历会话对，闸门通过且触发命中则生成并投递。
 pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
     let candidates = conversation_queries::list_proactive_candidates(&chat.db).await?;
-    tracing::debug!(
-        candidates = candidates.len(),
-        "proactive tick begin"
-    );
+    tracing::debug!(candidates = candidates.len(), "proactive tick begin");
 
     let mut rng = OsUnitRng;
     let now = Utc::now();
@@ -110,17 +107,21 @@ async fn process_candidate(
     }
 
     let availability = candidate.availability.as_deref().unwrap_or("medium");
+    let (daily_greeting_eligible, greeting_extras) =
+        evaluate_daily_greeting(chat, candidate, now).await?;
 
     let trigger = triggers::select_trigger(&TriggerContext {
         conversation_id,
         status: &candidate.status,
         availability,
+        daily_greeting_eligible,
     });
     let Some(trigger) = trigger else {
         tracing::trace!(
             conversation_id,
             status = %candidate.status,
             availability,
+            daily_greeting_eligible,
             "proactive skipped: no trigger matched"
         );
         return Ok(false);
@@ -158,8 +159,10 @@ async fn process_candidate(
         "proactive attempting deliver"
     );
 
-    let delivered = generate_and_deliver(chat, candidate, trigger).await?;
+    let delivered =
+        generate_and_deliver(chat, candidate, trigger, &greeting_extras).await?;
     if !delivered {
+        // 失败细节已在 generate_and_deliver 内 warn
         return Ok(false);
     }
 
@@ -188,10 +191,151 @@ async fn process_candidate(
         user_id,
         character_id,
         trigger = trigger.as_str(),
+        is_user_birthday = greeting_extras.is_user_birthday,
         "proactive delivered"
     );
 
     Ok(true)
+}
+
+async fn evaluate_daily_greeting(
+    chat: &Arc<ChatService>,
+    candidate: &conversation_queries::ProactiveCandidateRow,
+    now: chrono::DateTime<Utc>,
+) -> Result<(bool, DailyGreetingExtras), AppError> {
+    let mut extras = DailyGreetingExtras::default();
+
+    let user = users::find_by_id(&chat.db, &candidate.user_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("用户不存在"))?;
+    extras.user_birthday = user.birthday;
+    extras.is_user_birthday =
+        triggers::is_birthday_today(user.birthday, now, &candidate.timezone)?;
+
+    let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
+    else {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            character_id = %candidate.character_id,
+            "daily_greeting: character has no schedule_json"
+        );
+        return Ok((false, extras));
+    };
+    let schedule = match schedule::Schedule::try_from_json_value(raw) {
+        Ok(None) => {
+            tracing::trace!(
+                conversation_id = %candidate.id,
+                character_id = %candidate.character_id,
+                "daily_greeting: empty schedule_json"
+            );
+            return Ok((false, extras));
+        }
+        Ok(Some(schedule)) => schedule,
+        Err(err) => {
+            tracing::warn!(
+                conversation_id = %candidate.id,
+                character_id = %candidate.character_id,
+                "daily_greeting: invalid schedule_json: {err}"
+            );
+            return Ok((false, extras));
+        }
+    };
+
+    let Some(wakeup) = current_wakeup_slot(&schedule, now)? else {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            character_id = %candidate.character_id,
+            "daily_greeting: not in kind=wake slot"
+        );
+        return Ok((false, extras));
+    };
+
+    let cfg = &chat.proactive_config;
+    if !in_daily_greeting_window(
+        &wakeup,
+        &candidate.character_id,
+        cfg.daily_greeting_window_min_mins,
+        cfg.daily_greeting_window_max_mins,
+    ) {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            activity = %wakeup.activity,
+            minutes_into_slot = wakeup.minutes_into_slot,
+            "daily_greeting: outside greeting window"
+        );
+        return Ok((false, extras));
+    }
+
+    // 「每角色每日一次」按角色日程时区自然日统计。
+    let (char_day_start, char_day_end) =
+        character_local_day_bounds(now, &schedule.timezone, wakeup.local_date)?;
+    let already = proactive_logs::count_trigger_between(
+        &chat.db,
+        &candidate.user_id,
+        &candidate.character_id,
+        TriggerType::DailyGreeting.as_str(),
+        char_day_start,
+        char_day_end,
+    )
+    .await?;
+    if already > 0 {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            character_id = %candidate.character_id,
+            "daily_greeting: already sent today"
+        );
+        return Ok((false, extras));
+    }
+
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        activity = %wakeup.activity,
+        minutes_into_slot = wakeup.minutes_into_slot,
+        is_user_birthday = extras.is_user_birthday,
+        "daily_greeting eligible"
+    );
+    Ok((true, extras))
+}
+
+fn character_local_day_bounds(
+    now: chrono::DateTime<Utc>,
+    tz: &str,
+    local_date: chrono::NaiveDate,
+) -> Result<(chrono::DateTime<Utc>, chrono::DateTime<Utc>), AppError> {
+    let _ = now;
+    let tz = parse_timezone(tz)?;
+    let start = local_date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| AppError::bad_request("无效的本地日界线"))?;
+    let end = start + chrono::Duration::days(1);
+    Ok((
+        tz.from_local_datetime(&start)
+            .single()
+            .ok_or_else(|| AppError::bad_request("无效的本地日界线"))?
+            .with_timezone(&Utc),
+        tz.from_local_datetime(&end)
+            .single()
+            .ok_or_else(|| AppError::bad_request("无效的本地日界线"))?
+            .with_timezone(&Utc),
+    ))
+}
+
+fn special_date_detail(extras: &DailyGreetingExtras) -> Option<String> {
+    if !extras.has_special_date() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if extras.is_user_birthday {
+        if let Some(date) = extras.user_birthday {
+            parts.push(format!("对方生日（{}）", date.format("%m-%d")));
+        } else {
+            parts.push("对方生日".into());
+        }
+    }
+    for name in &extras.holiday_names {
+        parts.push(name.clone());
+    }
+    Some(parts.join("、"))
 }
 
 /// 生成并投递；LLM/空气泡失败返回 `Ok(false)`（不计上限）。其它 DB/投递错误上抛。
@@ -199,8 +343,15 @@ async fn generate_and_deliver(
     chat: &Arc<ChatService>,
     candidate: &conversation_queries::ProactiveCandidateRow,
     trigger: TriggerType,
+    greeting_extras: &DailyGreetingExtras,
 ) -> Result<bool, AppError> {
     let turn_id = Uuid::new_v4().to_string();
+    let special = if trigger == TriggerType::DailyGreeting {
+        special_date_detail(greeting_extras)
+    } else {
+        None
+    };
+
     let request = match crate::chat::build_proactive_request(
         &chat.db,
         &candidate.user_id,
@@ -208,6 +359,7 @@ async fn generate_and_deliver(
         &turn_id,
         trigger.as_str(),
         chat.summary_config.keep_recent_turns,
+        special.as_deref(),
     )
     .await
     {
