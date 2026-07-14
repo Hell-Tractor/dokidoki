@@ -73,6 +73,8 @@ impl Config {
                 daily_greeting_window_max_mins: 60,
                 pre_sleep_window_min_mins: 10,
                 pre_sleep_window_max_mins: 30,
+                schedule_change_window_min_mins: 5,
+                schedule_change_window_max_mins: 20,
             },
         }
     }
@@ -228,6 +230,12 @@ pub struct Proactive {
     /// 睡前：`kind=sleep` 开始前触发窗上限（分钟）
     #[serde(default = "default_pre_sleep_window_max")]
     pub pre_sleep_window_max_mins: u32,
+    /// 日程切换：进入 `kind=custom` 段后触发窗下限（分钟）
+    #[serde(default = "default_schedule_change_window_min")]
+    pub schedule_change_window_min_mins: u32,
+    /// 日程切换：进入 `kind=custom` 段后触发窗上限（分钟）
+    #[serde(default = "default_schedule_change_window_max")]
+    pub schedule_change_window_max_mins: u32,
 }
 
 fn default_pre_sleep_window_min() -> u32 {
@@ -236,6 +244,14 @@ fn default_pre_sleep_window_min() -> u32 {
 
 fn default_pre_sleep_window_max() -> u32 {
     30
+}
+
+fn default_schedule_change_window_min() -> u32 {
+    5
+}
+
+fn default_schedule_change_window_max() -> u32 {
+    20
 }
 
 impl Proactive {

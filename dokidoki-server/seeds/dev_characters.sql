@@ -43,7 +43,8 @@ VALUES (
         },
         "proactive": {
             "silence_after_hours": 4,
-            "probability_factor": 1.2
+            "probability_factor": 1.2,
+            "schedule_change_probability": 0.55
         },
         "conversation_style": "比较在意对方，容易主动关心，较少使用 NO_REPLY；结束话题时可能舍不得，多回一句",
         "emotional_triggers": {

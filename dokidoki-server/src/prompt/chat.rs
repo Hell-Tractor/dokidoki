@@ -1,5 +1,5 @@
 use super::templates::{
-    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T18, T19, T21,
+    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T16, T18, T19, T21,
 };
 use crate::domain::persona::Persona;
 use crate::domain::Availability;
@@ -107,6 +107,7 @@ pub fn format_proactive_scene(
     trigger: &str,
     special_date_detail: Option<&str>,
     ask_user_busy_care: bool,
+    schedule_change: Option<(&str, Option<&str>)>,
 ) -> String {
     let mut parts = Vec::new();
     match trigger {
@@ -125,6 +126,17 @@ pub fn format_proactive_scene(
             if let Some(detail) = special_date_detail.filter(|d| !d.is_empty()) {
                 parts.push(T18.replace("{special_date_detail}", detail));
             }
+        }
+        "schedule_change" => {
+            let (current, previous) = schedule_change.unwrap_or(("", None));
+            let previous_block = previous
+                .filter(|p| !p.is_empty())
+                .map(|p| format!("上一档活动是：{p}。\n"))
+                .unwrap_or_default();
+            parts.push(
+                T16.replace("{current_activity}", current)
+                    .replace("{previous_activity_block}", previous_block.trim_end()),
+            );
         }
         "re_engage" => parts.push(T15.to_owned()),
         "silence_wake" => parts.push(T14.to_owned()),
@@ -268,12 +280,12 @@ mod tests {
 
     #[test]
     fn proactive_daily_greeting_scene_includes_t13_and_optional_t18() {
-        let scene = format_proactive_scene("daily_greeting", None, false);
+        let scene = format_proactive_scene("daily_greeting", None, false, None);
         assert!(scene.contains("每日问候"));
         assert!(!scene.contains("特殊日期"));
 
         let with_special =
-            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false);
+            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false, None);
         assert!(with_special.contains("每日问候"));
         assert!(with_special.contains("特殊日期"));
         assert!(with_special.contains("对方生日（07-11）"));
@@ -281,27 +293,40 @@ mod tests {
 
     #[test]
     fn proactive_re_engage_scene_uses_t15() {
-        let scene = format_proactive_scene("re_engage", None, false);
+        let scene = format_proactive_scene("re_engage", None, false, None);
         assert!(scene.contains("话题重启"));
         assert!(scene.contains("paused"));
     }
 
     #[test]
     fn proactive_silence_wake_scene_uses_t14() {
-        let scene = format_proactive_scene("silence_wake", None, false);
+        let scene = format_proactive_scene("silence_wake", None, false, None);
         assert!(scene.contains("沉默唤醒"));
         assert!(scene.contains("很久没回"));
     }
 
     #[test]
     fn proactive_pre_sleep_scene_uses_t21_and_optional_care() {
-        let scene = format_proactive_scene("pre_sleep", None, false);
+        let scene = format_proactive_scene("pre_sleep", None, false, None);
         assert!(scene.contains("睡前晚安"));
         assert!(!scene.contains("附加关心"));
 
-        let with_care = format_proactive_scene("pre_sleep", None, true);
+        let with_care = format_proactive_scene("pre_sleep", None, true, None);
         assert!(with_care.contains("睡前晚安"));
         assert!(with_care.contains("附加关心"));
         assert!(with_care.contains("忙完"));
+    }
+
+    #[test]
+    fn proactive_schedule_change_scene_uses_t16() {
+        let scene = format_proactive_scene(
+            "schedule_change",
+            None,
+            false,
+            Some(("回家做饭", Some("录音棚配音"))),
+        );
+        assert!(scene.contains("日程切换"));
+        assert!(scene.contains("回家做饭"));
+        assert!(scene.contains("录音棚配音"));
     }
 }

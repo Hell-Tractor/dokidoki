@@ -14,13 +14,18 @@ use crate::{
         character_states, characters, conversations as conversation_queries, proactive_logs, users,
     },
     error::AppError,
-    schedule::{self, current_wakeup_slot, in_daily_greeting_window, in_pre_sleep_window, upcoming_pre_sleep},
+    schedule::{
+        self, current_custom_slot, current_wakeup_slot, in_daily_greeting_window,
+        in_pre_sleep_window, in_schedule_change_window, upcoming_pre_sleep,
+    },
     time::parse_timezone,
     utils::{OsUnitRng, UnitRng},
 };
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
-pub use triggers::{DailyGreetingExtras, PreSleepExtras, TriggerContext, TriggerType};
+pub use triggers::{
+    DailyGreetingExtras, PreSleepExtras, ScheduleChangeExtras, TriggerContext, TriggerType,
+};
 
 /// 与 schedule refresh 同循环调用：超时落地 winding_down，再遍历会话投递主动消息。
 pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
@@ -158,6 +163,15 @@ async fn process_candidate(
         availability,
         persona.proactive.silence_after_hours,
     );
+    let (schedule_change_eligible, schedule_change_extras) = evaluate_schedule_change(
+        chat,
+        candidate,
+        now,
+        availability,
+        persona.proactive.schedule_change_probability,
+        persona.proactive.probability_factor,
+    )
+    .await?;
 
     let trigger = triggers::select_trigger(&TriggerContext {
         conversation_id,
@@ -167,6 +181,7 @@ async fn process_candidate(
         daily_greeting_eligible,
         re_engage_eligible,
         silence_wake_eligible,
+        schedule_change_eligible,
     });
     let Some(trigger) = trigger else {
         tracing::trace!(
@@ -177,6 +192,7 @@ async fn process_candidate(
             daily_greeting_eligible,
             re_engage_eligible,
             silence_wake_eligible,
+            schedule_change_eligible,
             "proactive skipped: no trigger matched"
         );
         return Ok(false);
@@ -203,6 +219,8 @@ async fn process_candidate(
             }
             ok
         }
+        // schedule_change：已在 timing 求值里按性格倾向做了本段一次确定性抽样
+        (TriggerType::ScheduleChange, _) => true,
         _ => {
             if !passes_probability_gate(
                 &chat.proactive_config,
@@ -239,9 +257,15 @@ async fn process_candidate(
         "proactive attempting deliver"
     );
 
-    let delivered =
-        generate_and_deliver(chat, candidate, trigger, &greeting_extras, &pre_sleep_extras)
-            .await?;
+    let delivered = generate_and_deliver(
+        chat,
+        candidate,
+        trigger,
+        &greeting_extras,
+        &pre_sleep_extras,
+        &schedule_change_extras,
+    )
+    .await?;
     if !delivered {
         return Ok(false);
     }
@@ -536,6 +560,124 @@ fn evaluate_silence_wake(
     eligible
 }
 
+async fn evaluate_schedule_change(
+    chat: &Arc<ChatService>,
+    candidate: &conversation_queries::ProactiveCandidateRow,
+    now: chrono::DateTime<Utc>,
+    availability: crate::domain::Availability,
+    schedule_change_probability: f64,
+    probability_factor: f64,
+) -> Result<(bool, ScheduleChangeExtras), AppError> {
+    let mut extras = ScheduleChangeExtras::default();
+
+    if candidate.status != crate::domain::ConversationStatus::Active {
+        return Ok((false, extras));
+    }
+    if !availability.at_least_medium() {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            availability = %availability,
+            "schedule_change: availability too low"
+        );
+        return Ok((false, extras));
+    }
+
+    let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
+    else {
+        return Ok((false, extras));
+    };
+    let schedule = match schedule::Schedule::try_from_json_value(raw) {
+        Ok(None) => return Ok((false, extras)),
+        Ok(Some(schedule)) => schedule,
+        Err(err) => {
+            tracing::warn!(
+                conversation_id = %candidate.id,
+                character_id = %candidate.character_id,
+                "schedule_change: invalid schedule_json: {err}"
+            );
+            return Ok((false, extras));
+        }
+    };
+
+    let Some(status) = current_custom_slot(&schedule, now)? else {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            "schedule_change: not in kind=custom slot"
+        );
+        return Ok((false, extras));
+    };
+    extras.current_activity = status.activity.clone();
+    extras.previous_activity = status.previous_activity.clone();
+
+    let cfg = &chat.proactive_config;
+    if !in_schedule_change_window(
+        &status,
+        &candidate.character_id,
+        cfg.schedule_change_window_min_mins,
+        cfg.schedule_change_window_max_mins,
+    ) {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            activity = %status.activity,
+            minutes_into_slot = status.minutes_into_slot,
+            "schedule_change: outside lead-in window"
+        );
+        return Ok((false, extras));
+    }
+
+    let already = proactive_logs::count_trigger_between(
+        &chat.db,
+        &candidate.user_id,
+        &candidate.character_id,
+        TriggerType::ScheduleChange.as_str(),
+        status.slot_started_at,
+        now + chrono::Duration::seconds(1),
+    )
+    .await?;
+    if already > 0 {
+        tracing::trace!(
+            conversation_id = %candidate.id,
+            activity = %status.activity,
+            "schedule_change: already sent for this slot"
+        );
+        return Ok((false, extras));
+    }
+
+    let base = chat.proactive_config.base_probability(availability);
+    let (pass, final_p, roll) = triggers::schedule_change_probability_passes(
+        &candidate.character_id,
+        status.slot_started_at,
+        schedule_change_probability,
+        base,
+        probability_factor,
+    );
+    if !pass {
+        tracing::debug!(
+            conversation_id = %candidate.id,
+            activity = %status.activity,
+            tendency = schedule_change_probability,
+            base,
+            probability_factor,
+            final_p,
+            roll,
+            "schedule_change: personality probability miss (once per slot)"
+        );
+        return Ok((false, extras));
+    }
+
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        activity = %status.activity,
+        previous = ?status.previous_activity,
+        minutes_into_slot = status.minutes_into_slot,
+        tendency = schedule_change_probability,
+        final_p,
+        roll,
+        "schedule_change eligible"
+    );
+    Ok((true, extras))
+}
+
 fn character_local_day_bounds(
     now: chrono::DateTime<Utc>,
     tz: &str,
@@ -584,6 +726,7 @@ async fn generate_and_deliver(
     trigger: TriggerType,
     greeting_extras: &DailyGreetingExtras,
     pre_sleep_extras: &PreSleepExtras,
+    schedule_change_extras: &ScheduleChangeExtras,
 ) -> Result<bool, AppError> {
     let turn_id = Uuid::new_v4().to_string();
     let special = if trigger == TriggerType::DailyGreeting {
@@ -593,6 +736,14 @@ async fn generate_and_deliver(
     };
     let ask_user_busy_care =
         trigger == TriggerType::PreSleep && pre_sleep_extras.ask_user_busy_care;
+    let schedule_change = if trigger == TriggerType::ScheduleChange {
+        Some((
+            schedule_change_extras.current_activity.as_str(),
+            schedule_change_extras.previous_activity.as_deref(),
+        ))
+    } else {
+        None
+    };
 
     let request = match crate::chat::build_proactive_request(
         &chat.db,
@@ -603,6 +754,7 @@ async fn generate_and_deliver(
         chat.summary_config.keep_recent_turns,
         special.as_deref(),
         ask_user_busy_care,
+        schedule_change,
     )
     .await
     {

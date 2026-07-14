@@ -52,6 +52,13 @@ pub struct PreSleepExtras {
     pub ask_user_busy_care: bool,
 }
 
+/// 日程切换附加语境。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScheduleChangeExtras {
+    pub current_activity: String,
+    pub previous_activity: Option<String>,
+}
+
 /// 触发器求值上下文（字段随各类触发落地逐步补齐）。
 #[derive(Debug, Clone)]
 pub struct TriggerContext<'a> {
@@ -66,9 +73,11 @@ pub struct TriggerContext<'a> {
     pub re_engage_eligible: bool,
     /// 仅 `paused`：距用户末条超过 `silence_after_hours`。
     pub silence_wake_eligible: bool,
+    /// `active` + 刚进入 custom 活动段且适合分享。
+    pub schedule_change_eligible: bool,
 }
 
-/// 按优先级取一条：pre_sleep → daily_greeting → re_engage → silence_wake → …
+/// 按优先级取一条：pre_sleep → daily_greeting → re_engage → silence_wake → … → schedule_change
 pub fn select_trigger(ctx: &TriggerContext<'_>) -> Option<TriggerType> {
     for candidate in [
         TriggerType::PreSleep,
@@ -92,7 +101,7 @@ fn evaluate(trigger: TriggerType, ctx: &TriggerContext<'_>) -> bool {
         TriggerType::ReEngage => ctx.re_engage_eligible,
         TriggerType::SilenceWake => ctx.silence_wake_eligible,
         TriggerType::MoodFollowup => false,
-        TriggerType::ScheduleChange => false,
+        TriggerType::ScheduleChange => ctx.schedule_change_eligible,
     }
 }
 
@@ -155,6 +164,30 @@ pub fn is_silence_wake_eligible(
     now.signed_duration_since(last_user_message_at) >= threshold
 }
 
+/// `schedule_change` 本段一次确定性抽样：`tendency × base × probability_factor`。
+pub fn schedule_change_probability_passes(
+    character_id: &str,
+    slot_started_at: DateTime<Utc>,
+    tendency: f64,
+    availability_base: f64,
+    probability_factor: f64,
+) -> (bool, f64, f64) {
+    let final_p = (tendency.max(0.0) * availability_base * probability_factor.max(0.0)).clamp(0.0, 1.0);
+    let roll = schedule_change_roll(character_id, slot_started_at);
+    (roll < final_p, final_p, roll)
+}
+
+fn schedule_change_roll(character_id: &str, slot_started_at: DateTime<Utc>) -> f64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    character_id.hash(&mut hasher);
+    slot_started_at.timestamp_millis().hash(&mut hasher);
+    "schedule_change".hash(&mut hasher);
+    (hasher.finish() % 10_000) as f64 / 10_000.0
+}
+
 fn duration_from_hours(hours: f64) -> Option<Duration> {
     let millis = (hours * 3_600_000.0).round();
     if !millis.is_finite() || millis > i64::MAX as f64 || millis < 0.0 {
@@ -186,6 +219,7 @@ mod tests {
         daily: bool,
         re_engage: bool,
         silence: bool,
+        schedule_change: bool,
     ) -> TriggerContext<'static> {
         TriggerContext {
             conversation_id: "c1",
@@ -195,28 +229,33 @@ mod tests {
             daily_greeting_eligible: daily,
             re_engage_eligible: re_engage,
             silence_wake_eligible: silence,
+            schedule_change_eligible: schedule_change,
         }
     }
 
     #[test]
     fn selects_by_priority() {
         assert_eq!(
-            select_trigger(&ctx(true, true, true, true)),
+            select_trigger(&ctx(true, true, true, true, true)),
             Some(TriggerType::PreSleep)
         );
         assert_eq!(
-            select_trigger(&ctx(false, true, true, true)),
+            select_trigger(&ctx(false, true, true, true, true)),
             Some(TriggerType::DailyGreeting)
         );
         assert_eq!(
-            select_trigger(&ctx(false, false, true, true)),
+            select_trigger(&ctx(false, false, true, true, true)),
             Some(TriggerType::ReEngage)
         );
         assert_eq!(
-            select_trigger(&ctx(false, false, false, true)),
+            select_trigger(&ctx(false, false, false, true, true)),
             Some(TriggerType::SilenceWake)
         );
-        assert_eq!(select_trigger(&ctx(false, false, false, false)), None);
+        assert_eq!(
+            select_trigger(&ctx(false, false, false, false, true)),
+            Some(TriggerType::ScheduleChange)
+        );
+        assert_eq!(select_trigger(&ctx(false, false, false, false, false)), None);
     }
 
     #[test]
@@ -313,5 +352,21 @@ mod tests {
         let bday = NaiveDate::from_ymd_opt(2000, 7, 11).unwrap();
         assert!(is_birthday_today(Some(bday), now, "Asia/Shanghai").unwrap());
         assert!(!is_birthday_today(Some(bday), now, "UTC").unwrap());
+    }
+
+    #[test]
+    fn schedule_change_roll_is_deterministic_per_slot() {
+        let started = Utc.with_ymd_and_hms(2026, 7, 14, 9, 0, 0).unwrap();
+        let (a, p1, r1) =
+            schedule_change_probability_passes("char-1", started, 1.0, 1.0, 1.0);
+        let (b, p2, r2) =
+            schedule_change_probability_passes("char-1", started, 1.0, 1.0, 1.0);
+        assert_eq!((a, p1, r1), (b, p2, r2));
+        assert!(a); // tendency=1 → always pass
+
+        let (miss, final_p, _) =
+            schedule_change_probability_passes("char-1", started, 0.0, 1.0, 1.0);
+        assert!(!miss);
+        assert_eq!(final_p, 0.0);
     }
 }

@@ -253,6 +253,101 @@ pub fn in_daily_greeting_window(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomSlotStatus {
+    pub activity: String,
+    pub previous_activity: Option<String>,
+    pub minutes_into_slot: u32,
+    pub slot_started_at: DateTime<Utc>,
+    pub local_date: NaiveDate,
+}
+
+/// 若 `now` 落在 `kind = custom` 活动段内则返回状态（wake/sleep 不算日程切换）。
+pub fn current_custom_slot(
+    schedule: &Schedule,
+    now: DateTime<Utc>,
+) -> Result<Option<CustomSlotStatus>, AppError> {
+    let tz = parse_timezone(&schedule.timezone)?;
+    let local = now.with_timezone(&tz);
+    let local_date = local.date_naive();
+    let local_time = local.time();
+
+    let weekday_key = weekday_template_key(local.weekday());
+    let slots = day_slots(&schedule.weekly_template, weekday_key)?;
+    let Some((idx, current)) = slots
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| time_in_slot(local_time, slot.start, slot.end))
+    else {
+        return Ok(None);
+    };
+    if current.kind != SlotKind::Custom {
+        return Ok(None);
+    }
+
+    let previous_activity = idx
+        .checked_sub(1)
+        .and_then(|i| slots.get(i))
+        .map(|slot| slot.activity.clone());
+
+    let slot_started_at = slot_start_utc(local_date, local_time, current, &tz);
+
+    Ok(Some(CustomSlotStatus {
+        activity: current.activity.clone(),
+        previous_activity,
+        minutes_into_slot: minutes_since_slot_start(local_time, current.start),
+        slot_started_at,
+        local_date,
+    }))
+}
+
+/// 日程切换触发窗长度（分钟）。
+pub(crate) fn schedule_change_window_mins(
+    character_id: &str,
+    local_date: NaiveDate,
+    window_min: u32,
+    window_max: u32,
+) -> u32 {
+    let min = window_min.min(window_max);
+    let max = window_min.max(window_max);
+    if min == max {
+        return min;
+    }
+    let unit = deterministic_unit(character_id, local_date, "schedule_change_window");
+    min + ((unit * f64::from(max - min + 1)) as u32).min(max - min)
+}
+
+pub fn in_schedule_change_window(
+    status: &CustomSlotStatus,
+    character_id: &str,
+    window_min: u32,
+    window_max: u32,
+) -> bool {
+    let window =
+        schedule_change_window_mins(character_id, status.local_date, window_min, window_max);
+    status.minutes_into_slot < window
+}
+
+fn slot_start_utc(
+    local_date: NaiveDate,
+    local_time: NaiveTime,
+    slot: &ScheduleSlot,
+    tz: &Tz,
+) -> DateTime<Utc> {
+    let start_date = if slot.start <= slot.end {
+        local_date
+    } else if local_time >= slot.start {
+        local_date
+    } else {
+        // 跨午夜槽位：本地时间已过午夜，起始在前一日。
+        local_date - chrono::Duration::days(1)
+    };
+    tz.from_local_datetime(&start_date.and_time(slot.start))
+        .single()
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or(Utc::now())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreSleepStatus {
     pub minutes_until_sleep: u32,
     /// 即将开始的 sleep 段所属本地日（用于每日一次统计）。
@@ -448,6 +543,27 @@ mod tests {
         assert_eq!(status.activity, "早餐");
         assert_eq!(status.minutes_into_slot, 20);
         assert!(in_daily_greeting_window(&status, "char-1", 30, 60));
+    }
+
+    #[test]
+    fn custom_slot_exposes_previous_activity_and_window() {
+        let schedule = sample_schedule();
+        // 2026-07-13 Monday 09:05 Asia/Shanghai = 01:05 UTC → just entered 工作
+        let now = Utc.with_ymd_and_hms(2026, 7, 13, 1, 5, 0).unwrap();
+        let status = current_custom_slot(&schedule, now).unwrap().unwrap();
+        assert_eq!(status.activity, "工作");
+        assert_eq!(status.previous_activity.as_deref(), Some("早餐"));
+        assert_eq!(status.minutes_into_slot, 5);
+        assert!(in_schedule_change_window(&status, "char-1", 5, 20));
+    }
+
+    #[test]
+    fn custom_slot_none_for_wake_or_sleep() {
+        let schedule = sample_schedule();
+        let wake = Utc.with_ymd_and_hms(2026, 7, 12, 23, 20, 0).unwrap();
+        assert!(current_custom_slot(&schedule, wake).unwrap().is_none());
+        let sleep = Utc.with_ymd_and_hms(2026, 7, 13, 15, 0, 0).unwrap();
+        assert!(current_custom_slot(&schedule, sleep).unwrap().is_none());
     }
 
     #[test]

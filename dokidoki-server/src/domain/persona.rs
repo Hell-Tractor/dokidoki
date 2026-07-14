@@ -139,6 +139,10 @@ pub struct ProactiveConfig {
     pub silence_after_hours: f64,
     #[serde(default = "default_probability_factor")]
     pub probability_factor: f64,
+    /// 日程切换（`schedule_change`）本段触发倾向；再乘全局 availability / `probability_factor`。
+    /// 每活动段确定性抽样一次，失败则本段不再重试。
+    #[serde(default = "default_schedule_change_probability")]
+    pub schedule_change_probability: f64,
     #[serde(default)]
     pub user_busy_reengage: UserBusyReengage,
 }
@@ -148,6 +152,7 @@ impl Default for ProactiveConfig {
         Self {
             silence_after_hours: default_silence_after_hours(),
             probability_factor: default_probability_factor(),
+            schedule_change_probability: default_schedule_change_probability(),
             user_busy_reengage: UserBusyReengage::default(),
         }
     }
@@ -159,6 +164,10 @@ fn default_silence_after_hours() -> f64 {
 
 fn default_probability_factor() -> f64 {
     1.0
+}
+
+fn default_schedule_change_probability() -> f64 {
+    0.35
 }
 
 /// `paused_user_busy` 下 re_engage 的时间→概率曲线。

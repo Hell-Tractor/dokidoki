@@ -228,14 +228,15 @@
   - [x] `paused_user_busy`：按 `user_busy_reengage` 的 \(P(t)\) × 全局闸门抽样 → `active`
 - [x] **`silence_wake`**：仅 `status=paused`；距用户末条 ≥ `silence_after_hours`
 - [ ] **`mood_followup`**：上次对话负面情绪标记 + 冷却
-- [ ] **`schedule_change`**：活动段刚变化且适合主动分享
+- [x] **`schedule_change`**：`status=active`；刚进入 `kind=custom` 段且在 lead-in 窗内；availability ≥ medium；`persona.proactive.schedule_change_probability` × 全局闸门（每段一次确定性抽样）；T-16
 
 #### Prompt
 
 - [x] T-12 / T-13 / T-14 / T-15 / T-18
 - [x] T-02 / 主回复：`[USER_BUSY]` tag；`availability=low` 下 `[END_TOPIC]` 须说明去忙
 - [x] **`pre_sleep` 场景模板** T-21（晚安；`paused_char_busy` 时可叠加「忙完没」关心）
-- [ ] 落地 T-16 / T-17
+- [x] 落地 T-16（`schedule_change`）
+- [ ] 落地 T-17
 - [ ] `re_engage` 场景区分 char_busy / user_busy（可调 T-15 或附加）
 
 #### 延后（记入文档，本期不做）

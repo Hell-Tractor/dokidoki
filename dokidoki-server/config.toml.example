@@ -76,3 +76,6 @@ daily_greeting_window_max_mins = 15
 # sleep 段开始前，在 [min, max] 分钟内随机取窗；进窗后至多发一次 pre_sleep
 pre_sleep_window_min_mins = 10
 pre_sleep_window_max_mins = 30
+# custom 活动段开始后，在 [min, max] 分钟内随机取窗；每段至多一次 schedule_change
+schedule_change_window_min_mins = 5
+schedule_change_window_max_mins = 20

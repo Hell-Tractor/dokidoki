@@ -69,6 +69,8 @@ mod tests {
             daily_greeting_window_max_mins: 60,
             pre_sleep_window_min_mins: 10,
             pre_sleep_window_max_mins: 30,
+            schedule_change_window_min_mins: 5,
+            schedule_change_window_max_mins: 20,
         }
     }
 
@@ -130,6 +132,8 @@ mod tests {
             daily_greeting_window_max_mins: 60,
             pre_sleep_window_min_mins: 10,
             pre_sleep_window_max_mins: 30,
+            schedule_change_window_min_mins: 5,
+            schedule_change_window_max_mins: 20,
         };
         assert_eq!(config.base_probability(Availability::High), 0.9);
         assert_eq!(config.base_probability(Availability::Medium), 0.1);
