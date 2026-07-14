@@ -23,7 +23,8 @@ use crate::{
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
 pub use triggers::{
-    DailyGreetingExtras, PreSleepExtras, ScheduleChangeExtras, TriggerContext, TriggerType,
+    DailyGreetingExtras, PreSleepExtras, ReEngageExtras, ReEngageReason, ScheduleChangeExtras,
+    TriggerContext, TriggerType,
 };
 
 /// 与 schedule refresh 同循环调用：超时落地 winding_down，再遍历会话投递主动消息。
@@ -152,7 +153,7 @@ async fn process_candidate(
         .await?
         .ok_or_else(|| AppError::not_found("角色不存在"))?;
 
-    let (re_engage_eligible, _) = evaluate_re_engage(
+    let (re_engage_eligible, re_engage_extras) = evaluate_re_engage(
         candidate,
         now,
         &persona.proactive,
@@ -215,6 +216,7 @@ async fn process_candidate(
         trigger,
         &greeting_extras,
         &pre_sleep_extras,
+        &re_engage_extras,
         &schedule_change_extras,
     )
     .await?;
@@ -452,7 +454,8 @@ fn evaluate_re_engage(
     now: chrono::DateTime<Utc>,
     proactive: &crate::domain::persona::ProactiveConfig,
     availability_base: f64,
-) -> (bool, Option<f64>) {
+) -> (bool, ReEngageExtras) {
+    let mut extras = ReEngageExtras::default();
     let character_id = candidate.character_id.as_str();
     let factor = proactive.probability_factor;
 
@@ -462,7 +465,7 @@ fn evaluate_re_engage(
         now,
     ) {
         let Some(anchor) = candidate.activity_ends_at else {
-            return (false, None);
+            return (false, extras);
         };
         let interval = triggers::retry_interval_mins(
             character_id,
@@ -472,7 +475,7 @@ fn evaluate_re_engage(
             "re_engage_char",
         );
         let Some(bucket) = triggers::retry_bucket_index(now, anchor, interval) else {
-            return (false, None);
+            return (false, extras);
         };
         let final_p = (availability_base * factor).clamp(0.0, 1.0);
         let (pass, roll) = triggers::retry_bucket_probability_passes(
@@ -491,8 +494,9 @@ fn evaluate_re_engage(
                 roll,
                 "re_engage: char_busy bucket miss"
             );
-            return (false, None);
+            return (false, extras);
         }
+        extras.reason = Some(ReEngageReason::CharBusy);
         tracing::debug!(
             conversation_id = %candidate.id,
             activity_ends_at = ?candidate.activity_ends_at,
@@ -501,7 +505,7 @@ fn evaluate_re_engage(
             final_p,
             "re_engage eligible: paused_char_busy"
         );
-        return (true, None);
+        return (true, extras);
     }
 
     if let Some(curve_p) = triggers::user_busy_re_engage_probability(
@@ -515,12 +519,11 @@ fn evaluate_re_engage(
                 conversation_id = %candidate.id,
                 "re_engage: paused_user_busy still in min_delay"
             );
-            return (false, None);
+            return (false, extras);
         }
         let Some(anchor) = candidate.paused_at else {
-            return (false, None);
+            return (false, extras);
         };
-        // 从曲线开始生效（min_delay 之后）起算重试桶。
         let curve_start = anchor
             + chrono::Duration::minutes(i64::from(proactive.user_busy_reengage.min_delay_minutes));
         let interval = triggers::retry_interval_mins(
@@ -531,7 +534,7 @@ fn evaluate_re_engage(
             "re_engage_user",
         );
         let Some(bucket) = triggers::retry_bucket_index(now, curve_start, interval) else {
-            return (false, None);
+            return (false, extras);
         };
         let final_p = (curve_p * availability_base * factor).clamp(0.0, 1.0);
         let (pass, roll) = triggers::retry_bucket_probability_passes(
@@ -551,8 +554,9 @@ fn evaluate_re_engage(
                 roll,
                 "re_engage: user_busy bucket miss"
             );
-            return (false, Some(curve_p));
+            return (false, extras);
         }
+        extras.reason = Some(ReEngageReason::UserBusy);
         tracing::debug!(
             conversation_id = %candidate.id,
             curve_p,
@@ -561,9 +565,9 @@ fn evaluate_re_engage(
             final_p,
             "re_engage eligible: paused_user_busy"
         );
-        return (true, Some(curve_p));
+        return (true, extras);
     }
-    (false, None)
+    (false, extras)
 }
 
 fn evaluate_silence_wake(
@@ -793,6 +797,7 @@ async fn generate_and_deliver(
     trigger: TriggerType,
     greeting_extras: &DailyGreetingExtras,
     pre_sleep_extras: &PreSleepExtras,
+    re_engage_extras: &ReEngageExtras,
     schedule_change_extras: &ScheduleChangeExtras,
 ) -> Result<bool, AppError> {
     let turn_id = Uuid::new_v4().to_string();
@@ -811,6 +816,11 @@ async fn generate_and_deliver(
     } else {
         None
     };
+    let re_engage_reason = if trigger == TriggerType::ReEngage {
+        re_engage_extras.reason.map(|r| r.as_str())
+    } else {
+        None
+    };
 
     let request = match crate::chat::build_proactive_request(
         &chat.db,
@@ -822,6 +832,7 @@ async fn generate_and_deliver(
         special.as_deref(),
         ask_user_busy_care,
         schedule_change,
+        re_engage_reason,
     )
     .await
     {

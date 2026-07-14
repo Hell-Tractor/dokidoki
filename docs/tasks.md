@@ -233,7 +233,7 @@
 - [x] **`pre_sleep` 场景模板** T-21（晚安；`paused_char_busy` 时可叠加「忙完没」关心）
 - [x] 落地 T-16（`schedule_change`）
 - [ ] 落地 T-17
-- [ ] `re_engage` 场景区分 char_busy / user_busy（可调 T-15 或附加）
+- [x] `re_engage` 场景区分 char_busy / user_busy（T-15 基座 + T-15_CHAR_BUSY / T-15_USER_BUSY）
 
 #### 延后（记入文档，本期不做）
 

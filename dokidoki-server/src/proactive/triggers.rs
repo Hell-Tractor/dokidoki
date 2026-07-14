@@ -52,6 +52,28 @@ pub struct PreSleepExtras {
     pub ask_user_busy_care: bool,
 }
 
+/// `re_engage` 触发原因（写入场景 Prompt）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReEngageReason {
+    CharBusy,
+    UserBusy,
+}
+
+impl ReEngageReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CharBusy => "char_busy",
+            Self::UserBusy => "user_busy",
+        }
+    }
+}
+
+/// 话题重启附加语境。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReEngageExtras {
+    pub reason: Option<ReEngageReason>,
+}
+
 /// 日程切换附加语境。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScheduleChangeExtras {

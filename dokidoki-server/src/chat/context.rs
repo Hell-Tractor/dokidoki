@@ -125,6 +125,7 @@ pub async fn build_proactive_request(
     ask_user_busy_care: bool,
     // `(current_activity, previous_activity)` for schedule_change
     schedule_change: Option<(&str, Option<&str>)>,
+    re_engage_reason: Option<&str>,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
@@ -143,6 +144,7 @@ pub async fn build_proactive_request(
         special_date_detail,
         ask_user_busy_care,
         schedule_change,
+        re_engage_reason,
     ));
 
     let recent =

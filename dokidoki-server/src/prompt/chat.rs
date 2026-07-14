@@ -1,5 +1,6 @@
 use super::templates::{
-    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T16, T18, T19, T21,
+    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T15_CHAR_BUSY,
+    T15_USER_BUSY, T16, T18, T19, T21,
 };
 use crate::domain::persona::Persona;
 use crate::domain::Availability;
@@ -108,6 +109,7 @@ pub fn format_proactive_scene(
     special_date_detail: Option<&str>,
     ask_user_busy_care: bool,
     schedule_change: Option<(&str, Option<&str>)>,
+    re_engage_reason: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
     match trigger {
@@ -138,7 +140,14 @@ pub fn format_proactive_scene(
                     .replace("{previous_activity_block}", previous_block.trim_end()),
             );
         }
-        "re_engage" => parts.push(T15.to_owned()),
+        "re_engage" => {
+            parts.push(T15.to_owned());
+            match re_engage_reason {
+                Some("char_busy") => parts.push(T15_CHAR_BUSY.to_owned()),
+                Some("user_busy") => parts.push(T15_USER_BUSY.to_owned()),
+                _ => {}
+            }
+        }
         "silence_wake" => parts.push(T14.to_owned()),
         _ => {
             parts.push(format!(
@@ -280,38 +289,50 @@ mod tests {
 
     #[test]
     fn proactive_daily_greeting_scene_includes_t13_and_optional_t18() {
-        let scene = format_proactive_scene("daily_greeting", None, false, None);
+        let scene = format_proactive_scene("daily_greeting", None, false, None, None);
         assert!(scene.contains("每日问候"));
         assert!(!scene.contains("特殊日期"));
 
         let with_special =
-            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false, None);
+            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false, None, None);
         assert!(with_special.contains("每日问候"));
         assert!(with_special.contains("特殊日期"));
         assert!(with_special.contains("对方生日（07-11）"));
     }
 
     #[test]
-    fn proactive_re_engage_scene_uses_t15() {
-        let scene = format_proactive_scene("re_engage", None, false, None);
-        assert!(scene.contains("话题重启"));
-        assert!(scene.contains("paused"));
+    fn proactive_re_engage_scene_uses_t15_and_reason() {
+        let base = format_proactive_scene("re_engage", None, false, None, None);
+        assert!(base.contains("话题重启"));
+        assert!(!base.contains("重启原因"));
+
+        let char_busy =
+            format_proactive_scene("re_engage", None, false, None, Some("char_busy"));
+        assert!(char_busy.contains("话题重启"));
+        assert!(char_busy.contains("你去忙刚结束"));
+        assert!(char_busy.contains("忙完啦"));
+
+        let user_busy =
+            format_proactive_scene("re_engage", None, false, None, Some("user_busy"));
+        assert!(user_busy.contains("话题重启"));
+        assert!(user_busy.contains("对方去忙"));
+        assert!(user_busy.contains("催促"));
     }
 
     #[test]
     fn proactive_silence_wake_scene_uses_t14() {
-        let scene = format_proactive_scene("silence_wake", None, false, None);
+        let scene = format_proactive_scene("silence_wake", None, false, None, None);
         assert!(scene.contains("沉默唤醒"));
         assert!(scene.contains("很久没回"));
     }
 
     #[test]
     fn proactive_pre_sleep_scene_uses_t21_and_optional_care() {
-        let scene = format_proactive_scene("pre_sleep", None, false, None);
+        let scene = format_proactive_scene("pre_sleep", None, false, None, None);
         assert!(scene.contains("睡前晚安"));
         assert!(!scene.contains("附加关心"));
 
-        let with_care = format_proactive_scene("pre_sleep", None, true, None);
+        let with_care = format_proactive_scene("pre_sleep", None, true, None, None);
         assert!(with_care.contains("睡前晚安"));
         assert!(with_care.contains("附加关心"));
         assert!(with_care.contains("忙完"));
@@ -324,6 +345,7 @@ mod tests {
             None,
             false,
             Some(("回家做饭", Some("录音棚配音"))),
+            None,
         );
         assert!(scene.contains("日程切换"));
         assert!(scene.contains("回家做饭"));
