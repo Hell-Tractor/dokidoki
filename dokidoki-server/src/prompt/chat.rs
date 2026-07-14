@@ -1,6 +1,6 @@
 use super::templates::{
-    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T12, T13, T14, T15, T15_CHAR_BUSY,
-    T15_USER_BUSY, T16, T18, T19, T21,
+    T01, T02, T03, T04_EMPTY, T04_WITH_MEMORIES, T05, T06_HIGH, T06_LOW, T06_MEDIUM, T07, T09,
+    T10, T12, T13, T14, T15, T15_CHAR_BUSY, T15_USER_BUSY, T16, T18, T19, T21,
 };
 use crate::domain::persona::Persona;
 use crate::domain::Availability;
@@ -15,6 +15,14 @@ pub struct CurrentStatePrompt {
     pub random_event: Option<String>,
 }
 
+/// 对话回复场景附加。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChatSceneFlags {
+    /// 对话回复路径：常驻注入 T-07，由模型自行判断低信息输入。
+    pub is_chat_reply: bool,
+    pub winding_down: bool,
+}
+
 pub fn build_system_prompt(
     persona: &Persona,
     character_name: &str,
@@ -22,6 +30,26 @@ pub fn build_system_prompt(
     current_state: Option<&CurrentStatePrompt>,
     memories: &[String],
     summary: Option<&str>,
+) -> String {
+    build_system_prompt_with_scenes(
+        persona,
+        character_name,
+        user_display_name,
+        current_state,
+        memories,
+        summary,
+        ChatSceneFlags::default(),
+    )
+}
+
+pub fn build_system_prompt_with_scenes(
+    persona: &Persona,
+    character_name: &str,
+    user_display_name: &str,
+    current_state: Option<&CurrentStatePrompt>,
+    memories: &[String],
+    summary: Option<&str>,
+    scenes: ChatSceneFlags,
 ) -> String {
     let traits = persona.traits_joined("、");
     let tone = persona.speech_style.tone.as_str();
@@ -52,15 +80,44 @@ pub fn build_system_prompt(
     if let Some(summary) = summary.filter(|value| !value.is_empty()) {
         parts.push(format_summary_block(summary));
     }
+    if let Some(state) = current_state {
+        parts.push(format_availability_style(state.availability));
+    }
     if let Some(style) = persona
         .conversation_style
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        parts.push(format!("【性格倾向】\n{style}"));
+        parts.push(T10.replace("{conversation_style}", style));
+    }
+    if let Some(scene) = format_chat_scenes(scenes) {
+        parts.push(scene);
     }
     parts.join("\n\n")
+}
+
+pub fn format_availability_style(availability: Availability) -> String {
+    match availability {
+        Availability::Low => T06_LOW.to_owned(),
+        Availability::Medium => T06_MEDIUM.to_owned(),
+        Availability::High => T06_HIGH.to_owned(),
+    }
+}
+
+pub fn format_chat_scenes(scenes: ChatSceneFlags) -> Option<String> {
+    let mut parts = Vec::new();
+    if scenes.is_chat_reply {
+        parts.push(T07.to_owned());
+    }
+    if scenes.winding_down {
+        parts.push(T09.to_owned());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
 }
 
 pub fn format_summary_block(summary: &str) -> String {
@@ -234,6 +291,55 @@ mod tests {
         assert!(prompt.contains("【当前状态】"));
         assert!(prompt.contains("你正在：工作"));
         assert!(prompt.contains("【今日变故】电脑坏了"));
+        assert!(prompt.contains("此刻回复风格 — 忙碌"));
+    }
+
+    #[test]
+    fn availability_style_varies_by_level() {
+        assert!(format_availability_style(Availability::Low).contains("忙碌"));
+        assert!(format_availability_style(Availability::Medium).contains("一般"));
+        assert!(format_availability_style(Availability::High).contains("空闲"));
+    }
+
+    #[test]
+    fn chat_scenes_include_t07_for_chat_reply_and_optional_t09() {
+        let reply_only = format_chat_scenes(ChatSceneFlags {
+            is_chat_reply: true,
+            winding_down: false,
+        })
+        .expect("scenes");
+        assert!(reply_only.contains("低信息输入处理"));
+        assert!(!reply_only.contains("话题收尾中"));
+
+        let both = format_chat_scenes(ChatSceneFlags {
+            is_chat_reply: true,
+            winding_down: true,
+        })
+        .expect("scenes");
+        assert!(both.contains("低信息输入处理"));
+        assert!(both.contains("话题收尾中"));
+
+        assert!(format_chat_scenes(ChatSceneFlags::default()).is_none());
+    }
+
+    #[test]
+    fn chat_prompt_always_includes_low_info_guidance() {
+        let prompt = build_system_prompt_with_scenes(
+            &Persona::default(),
+            "小咲",
+            "阿明",
+            None,
+            &[],
+            None,
+            ChatSceneFlags {
+                is_chat_reply: true,
+                winding_down: true,
+            },
+        );
+        assert!(prompt.contains("低信息输入处理"));
+        assert!(prompt.contains("陪伴模式"));
+        assert!(prompt.contains("话题收尾中"));
+        assert!(prompt.contains("若对方消息有实质内容"));
     }
 
     #[test]

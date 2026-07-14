@@ -268,6 +268,7 @@ impl ChatService {
         let pause_on_farewell = persona.conversation_behavior.pause_on_farewell;
 
         let current_status = conversation.status;
+        let mut prompt_status = current_status;
 
         match on_user_message(current_status, &user_content, pause_on_farewell) {
             UserMessageDecision::PauseWithoutReply => {
@@ -298,6 +299,7 @@ impl ChatService {
             }
             UserMessageDecision::CallLlm { status } => {
                 if let Some(status) = status {
+                    prompt_status = status;
                     tracing::debug!(
                         conversation_id = %conversation_id,
                         status = status.as_str(),
@@ -309,12 +311,18 @@ impl ChatService {
             }
         }
 
+        let scenes = context::ChatSceneFlags {
+            is_chat_reply: true,
+            winding_down: prompt_status == ConversationStatus::WindingDown,
+        };
+
         let request = context::build_chat_request(
             &self.db,
             user_id,
             conversation_id,
             turn_id,
             self.summary_config.keep_recent_turns,
+            scenes,
         )
         .await?;
         let raw = self.llm.chat(request).await?;

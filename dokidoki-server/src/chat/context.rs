@@ -6,11 +6,14 @@ use crate::{
     error::AppError,
     llm::{ChatRequest, LlmMessage},
     prompt::{
-        build_icebreaker_system_prompt, build_system_prompt, format_icebreaker_user_message,
-        format_proactive_scene, format_proactive_user_message, CurrentStatePrompt,
+        build_icebreaker_system_prompt, build_system_prompt, build_system_prompt_with_scenes,
+        format_icebreaker_user_message, format_proactive_scene, format_proactive_user_message,
+        CurrentStatePrompt,
     },
     schedule,
 };
+
+pub use crate::prompt::ChatSceneFlags;
 
 struct PromptContext {
     persona: Persona,
@@ -27,17 +30,19 @@ pub async fn build_chat_request(
     conversation_id: &str,
     turn_id: &str,
     keep_recent_turns: u32,
+    scenes: ChatSceneFlags,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
 
-    let system = build_system_prompt(
+    let system = build_system_prompt_with_scenes(
         &ctx.persona,
         &ctx.character_name,
         &ctx.user_display_name,
         ctx.current_state.as_ref(),
         &ctx.memories,
         ctx.summary.as_deref(),
+        scenes,
     );
 
     let recent =
