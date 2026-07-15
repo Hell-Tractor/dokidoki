@@ -27,6 +27,16 @@ pub async fn schedule(
     let read_delay_ms =
         sample_read_receipt_delay_ms(ctx.availability, reply_wait_ms, rng.next_unit());
 
+    tracing::debug!(
+        conversation_id = %conversation_id,
+        turn_id = %turn_id,
+        availability = %ctx.availability,
+        reply_wait_ms,
+        read_delay_ms,
+        user_messages = user_message_ids.len(),
+        "reply schedule delays"
+    );
+
     tokio::time::sleep(Duration::from_millis(read_delay_ms)).await;
     if let Err(err) = chat
         .mark_user_messages_read(user_id, conversation_id, user_message_ids)
@@ -63,6 +73,11 @@ pub async fn schedule(
         Ok(bubbles) => bubbles,
         Err(err) => {
             chat.emit_character_typing(user_id, conversation_id, false).await;
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                turn_id = %turn_id,
+                "reply generate failed: {err}"
+            );
             return Err(err);
         }
     };

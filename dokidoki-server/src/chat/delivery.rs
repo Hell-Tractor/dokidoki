@@ -20,6 +20,14 @@ pub async fn deliver_staggered(
         return Ok(());
     }
 
+    tracing::debug!(
+        conversation_id,
+        turn_id,
+        bubbles = bubbles.len(),
+        reply_to_id,
+        "character delivery starting"
+    );
+
     let (cancel_tx, cancel_rx) = watch::channel(false);
     {
         let mut deliveries = chat.active_deliveries.lock().await;
@@ -111,6 +119,12 @@ async fn deliver_loop(
         }
     }
 
+    tracing::info!(
+        conversation_id = %conversation_id,
+        turn_id = %turn_id,
+        bubbles = total,
+        "character delivery completed"
+    );
     Ok(())
 }
 

@@ -115,6 +115,11 @@ async fn create_conversation(
     };
 
     if !conversation.first_contact_done {
+        tracing::debug!(
+            conversation_id = %conversation.id,
+            user_id = %user.id,
+            "triggering icebreaker"
+        );
         state
             .chat
             .maybe_trigger_icebreaker(&user.id, &conversation.id);

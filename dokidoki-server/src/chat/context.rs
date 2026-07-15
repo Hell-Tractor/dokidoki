@@ -79,6 +79,15 @@ pub async fn build_chat_request(
         });
     }
 
+    tracing::debug!(
+        conversation_id = %conversation_id,
+        turn_id = %turn_id,
+        winding_down = scenes.winding_down,
+        system_chars = llm_messages.first().map(|m| m.content.len()).unwrap_or(0),
+        history_messages = llm_messages.len().saturating_sub(1),
+        "chat prompt assembled"
+    );
+
     Ok(ChatRequest {
         conversation_id: conversation_id.to_owned(),
         turn_id: turn_id.to_owned(),

@@ -153,8 +153,16 @@ impl ChatService {
         };
 
         let Some(burst) = burst else {
+            tracing::trace!(conversation_id, "burst flush skipped: buffer already gone");
             return Ok(());
         };
+
+        tracing::debug!(
+            conversation_id,
+            turn_id = %burst.turn_id,
+            messages = burst.message_ids.len(),
+            "burst flush starting"
+        );
 
         reply_scheduler::schedule(
             self,
@@ -315,6 +323,13 @@ impl ChatService {
             is_chat_reply: true,
             winding_down: prompt_status == ConversationStatus::WindingDown,
         };
+        tracing::debug!(
+            conversation_id = %conversation_id,
+            turn_id = %turn_id,
+            prompt_status = %prompt_status,
+            winding_down = scenes.winding_down,
+            "building chat llm request"
+        );
 
         let request = context::build_chat_request(
             &self.db,

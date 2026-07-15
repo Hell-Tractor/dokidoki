@@ -53,8 +53,79 @@ impl LlmClient {
     }
 
     pub async fn chat(&self, request: ChatRequest) -> Result<String, AppError> {
-        self.backend.chat(request).await
+        let conversation_id = request.conversation_id.clone();
+        let turn_id = request.turn_id.clone();
+        let message_count = request.messages.len();
+        let prompt_chars: usize = request
+            .messages
+            .iter()
+            .map(|message| message.content.len())
+            .sum();
+
+        tracing::debug!(
+            conversation_id = %conversation_id,
+            turn_id = %turn_id,
+            message_count,
+            prompt_chars,
+            "llm request"
+        );
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                conversation_id = %conversation_id,
+                turn_id = %turn_id,
+                prompt = %format_messages_for_trace(&request.messages),
+                "llm request body"
+            );
+        }
+
+        let started = std::time::Instant::now();
+        let result = self.backend.chat(request).await;
+        let elapsed_ms = started.elapsed().as_millis();
+
+        match &result {
+            Ok(raw) => {
+                tracing::debug!(
+                    conversation_id = %conversation_id,
+                    turn_id = %turn_id,
+                    elapsed_ms,
+                    reply_chars = raw.len(),
+                    "llm response ok"
+                );
+                tracing::trace!(
+                    conversation_id = %conversation_id,
+                    turn_id = %turn_id,
+                    reply = %raw,
+                    "llm response body"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    turn_id = %turn_id,
+                    elapsed_ms,
+                    "llm response error: {err}"
+                );
+            }
+        }
+
+        result
     }
+}
+
+fn format_messages_for_trace(messages: &[LlmMessage]) -> String {
+    messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| {
+            format!(
+                "----- [{index}] role={} chars={} -----\n{}",
+                message.role,
+                message.content.len(),
+                message.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(test)]

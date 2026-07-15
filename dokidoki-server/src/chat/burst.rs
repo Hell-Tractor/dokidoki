@@ -36,7 +36,7 @@ pub async fn ingest_user_text(
     chat.cancel_active_delivery(user_id, conversation_id).await;
 
     let message_id = Uuid::new_v4().to_string();
-    let (turn_id, seq_in_turn) = {
+    let (turn_id, seq_in_turn, is_append) = {
         let mut buffers = chat.burst_buffers.lock().await;
         if let Some(existing) = buffers.get_mut(conversation_id) {
             existing.timer.abort();
@@ -44,9 +44,9 @@ pub async fn ingest_user_text(
             let seq = existing.message_ids.len() as i32;
             existing.message_ids.push(message_id.clone());
             existing.last_message_id = message_id.clone();
-            (turn_id, seq)
+            (turn_id, seq, true)
         } else {
-            (Uuid::new_v4().to_string(), 0)
+            (Uuid::new_v4().to_string(), 0, false)
         }
     };
 
@@ -59,6 +59,16 @@ pub async fn ingest_user_text(
         seq_in_turn,
     )
     .await?;
+
+    tracing::debug!(
+        conversation_id,
+        turn_id = %turn_id,
+        message_id = %message.id,
+        seq_in_turn,
+        is_append,
+        content_chars = content.chars().count(),
+        "user burst text ingested"
+    );
 
     let silence = Duration::from_millis(chat.chat_config.burst_silence_ms as u64);
     let this = Arc::clone(chat);

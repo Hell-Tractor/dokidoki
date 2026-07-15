@@ -81,6 +81,7 @@ impl LlmBackend for HttpLlmBackend {
                 .collect(),
         };
 
+        let started = std::time::Instant::now();
         let response = self
             .client
             .post(self.endpoint())
@@ -110,7 +111,7 @@ impl LlmBackend for HttpLlmBackend {
             AppError::llm_unavailable()
         })?;
 
-        payload
+        let content = payload
             .choices
             .into_iter()
             .next()
@@ -119,6 +120,16 @@ impl LlmBackend for HttpLlmBackend {
             .ok_or_else(|| {
                 tracing::error!(conversation_id = %request.conversation_id, "llm http empty choices");
                 AppError::llm_unavailable()
-            })
+            })?;
+
+        tracing::debug!(
+            conversation_id = %request.conversation_id,
+            turn_id = %request.turn_id,
+            model = %self.model,
+            elapsed_ms = started.elapsed().as_millis(),
+            reply_chars = content.len(),
+            "llm http completed"
+        );
+        Ok(content)
     }
 }

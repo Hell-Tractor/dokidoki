@@ -30,7 +30,9 @@ fn init_logger() -> WorkerGuard {
         .with(terminal_layer)
         .init();
 
-    tracing::info!("Logger initialized");
+    tracing::info!(
+        "Logger initialized (set RUST_LOG=dokidoki_server=debug,dokidoki_server::llm=trace for LLM bodies)"
+    );
 
     guard
 }

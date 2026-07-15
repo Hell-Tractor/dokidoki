@@ -73,6 +73,35 @@ struct ApiErrorEnvelope {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = error_code_status(self.code());
+        match self.code() {
+            ErrorCode::InternalError | ErrorCode::LlmUnavailable => {
+                tracing::error!(
+                    code = self.code().as_str(),
+                    message = %self.message(),
+                    status = %status,
+                    "api error response"
+                );
+            }
+            ErrorCode::InvalidCredentials | ErrorCode::InvalidToken | ErrorCode::UsernameTaken => {
+                tracing::warn!(
+                    code = self.code().as_str(),
+                    message = %self.message(),
+                    status = %status,
+                    "api error response"
+                );
+            }
+            ErrorCode::BadRequest
+            | ErrorCode::NotFound
+            | ErrorCode::PayloadTooLarge
+            | ErrorCode::UnsupportedMedia => {
+                tracing::debug!(
+                    code = self.code().as_str(),
+                    message = %self.message(),
+                    status = %status,
+                    "api error response"
+                );
+            }
+        }
         let body = Json(ApiErrorEnvelope {
             error: ErrorBody {
                 code: self.code().as_str(),

@@ -87,11 +87,19 @@ pub async fn refresh_character_state(
 /// 刷新所有配置了 `schedule_json` 的角色状态。
 pub async fn refresh_all_character_states(pool: &MySqlPool) -> Result<(), AppError> {
     let ids = character_queries::list_character_ids(pool).await?;
-    for id in ids {
-        if let Err(err) = refresh_character_state(pool, &id).await {
+    let mut failed = 0u32;
+    for id in &ids {
+        if let Err(err) = refresh_character_state(pool, id).await {
+            failed += 1;
             tracing::warn!(character_id = %id, "schedule refresh failed: {err}");
         }
     }
+    tracing::debug!(
+        refreshed = ids.len().saturating_sub(failed as usize),
+        failed,
+        total = ids.len(),
+        "schedule refresh tick finished"
+    );
     Ok(())
 }
 

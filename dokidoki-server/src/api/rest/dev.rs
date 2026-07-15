@@ -30,6 +30,8 @@ async fn queue_llm_responses(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     ValidatedJson(body): ValidatedJson<QueueLlmRequest>,
 ) -> ApiResult<String> {
+    let count = body.responses.len();
     state.llm.queue_responses(body.responses);
+    tracing::info!(count, "dev llm responses queued");
     Ok(ApiResponse::ok("ok".to_owned()))
 }

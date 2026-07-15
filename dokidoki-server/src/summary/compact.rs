@@ -119,6 +119,8 @@ pub async fn run_compact(
     tracing::info!(
         conversation_id = %conversation_id,
         turns = turn_ids.len(),
+        message_chars = messages_text.len(),
+        had_previous_summary = summary_fields.summary.is_some(),
         "summary compact starting"
     );
 

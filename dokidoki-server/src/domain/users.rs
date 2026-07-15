@@ -23,16 +23,26 @@ pub async fn update_profile(
         None => None,
     };
 
-    user_queries::update_profile(
+    let updated = user_queries::update_profile(
         pool,
         &user.id,
         user,
         user_queries::UpdateMeParams {
-            display_name: input.display_name,
+            display_name: input.display_name.clone(),
             birthday: input.birthday,
-            timezone,
+            timezone: timezone.clone(),
             max_proactive_per_day: input.max_proactive_per_day.map(|value| value as i32),
         },
     )
-    .await
+    .await?;
+
+    tracing::info!(
+        user_id = %user.id,
+        display_name_set = input.display_name.is_some(),
+        birthday_set = input.birthday.is_some(),
+        timezone = ?timezone,
+        max_proactive_per_day = ?input.max_proactive_per_day,
+        "user profile updated"
+    );
+    Ok(updated)
 }

@@ -89,7 +89,15 @@ pub async fn get_or_create(
 
     let conversation_id = Uuid::new_v4().to_string();
     match conversation_queries::insert(pool, &conversation_id, user_id, character_id).await {
-        Ok(conversation) => Ok(GetOrCreateConversationResult::Created(conversation)),
+        Ok(conversation) => {
+            tracing::info!(
+                conversation_id = %conversation.id,
+                user_id,
+                character_id,
+                "conversation created"
+            );
+            Ok(GetOrCreateConversationResult::Created(conversation))
+        }
         Err(err) => {
             if let Some(conversation) =
                 conversation_queries::find_by_user_and_character(pool, user_id, character_id)

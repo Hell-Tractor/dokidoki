@@ -29,16 +29,24 @@ impl WsHub {
         self.connections.lock().await.insert(
             id,
             WsConnection {
-                user_id,
+                user_id: user_id.clone(),
                 subscriptions: HashSet::new(),
                 tx,
             },
         );
+        tracing::debug!(%user_id, connection_id = id, "ws hub register");
         (id, rx)
     }
 
     pub async fn unregister(&self, connection_id: u64) {
-        self.connections.lock().await.remove(&connection_id);
+        let removed = self.connections.lock().await.remove(&connection_id);
+        if let Some(connection) = removed {
+            tracing::debug!(
+                user_id = %connection.user_id,
+                connection_id,
+                "ws hub unregister"
+            );
+        }
     }
 
     pub async fn subscribe(&self, connection_id: u64, conversation_id: &str) -> bool {
@@ -97,6 +105,13 @@ impl WsHub {
                 dropped,
                 sent,
                 "ws emit dropped: subscriber channel closed"
+            );
+        } else if sent == 0 {
+            tracing::debug!(
+                user_id,
+                conversation_id,
+                event_type,
+                "ws emit: no live subscribers"
             );
         }
     }

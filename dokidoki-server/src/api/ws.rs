@@ -23,6 +23,8 @@ pub async fn handler(
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: String) {
     let (connection_id, mut hub_rx) = state.ws_hub.register(user_id.clone()).await;
+    tracing::info!(%user_id, connection_id, "ws connected");
+
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
 
     let connected = serde_json::json!({
@@ -56,42 +58,83 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, user_id: String)
     while let Some(result) = read.next().await {
         match result {
             Ok(Message::Text(text)) => {
-                if let Some(reply) = handle_client_message(&state, connection_id, &text).await {
+                if let Some(reply) = handle_client_message(&state, connection_id, &user_id, &text).await {
                     if out_tx.send(reply).is_err() {
                         break;
                     }
                 }
             }
-            Ok(Message::Close(_)) => break,
+            Ok(Message::Close(_)) => {
+                tracing::debug!(%user_id, connection_id, "ws client closed");
+                break;
+            }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {}
             Ok(_) => {}
-            Err(_) => break,
+            Err(err) => {
+                tracing::warn!(%user_id, connection_id, "ws socket error: {err}");
+                break;
+            }
         }
     }
 
     hub_forward.abort();
     write_task.abort();
     state.ws_hub.unregister(connection_id).await;
+    tracing::info!(%user_id, connection_id, "ws disconnected");
 }
 
 async fn handle_client_message(
     state: &AppState,
     connection_id: u64,
+    user_id: &str,
     text: &str,
 ) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(text).ok()?;
-    match value.get("type").and_then(|value| value.as_str())? {
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::debug!(
+                %user_id,
+                connection_id,
+                "ws malformed frame ignored: {err}"
+            );
+            return None;
+        }
+    };
+    let Some(msg_type) = value.get("type").and_then(|value| value.as_str()) else {
+        tracing::debug!(%user_id, connection_id, "ws frame missing type ignored");
+        return None;
+    };
+    match msg_type {
         "subscribe" => {
-            let conversation_id = value
+            let Some(conversation_id) = value
                 .pointer("/payload/conversation_id")
-                .and_then(|value| value.as_str())?;
-            state
+                .and_then(|value| value.as_str())
+            else {
+                tracing::debug!(
+                    %user_id,
+                    connection_id,
+                    "ws subscribe missing conversation_id ignored"
+                );
+                return None;
+            };
+            if state
                 .ws_hub
                 .subscribe(connection_id, conversation_id)
-                .await;
+                .await
+            {
+                tracing::debug!(
+                    %user_id,
+                    connection_id,
+                    conversation_id,
+                    "ws subscribed"
+                );
+            }
             None
         }
         "ping" => Some(r#"{"type":"pong"}"#.to_owned()),
-        _ => None,
+        other => {
+            tracing::debug!(%user_id, connection_id, msg_type = other, "ws unknown type ignored");
+            None
+        }
     }
 }

@@ -63,6 +63,11 @@ pub async fn register(
 
     tx.commit().await.map_err(AppError::internal)?;
 
+    tracing::info!(
+        user_id = %session.user.id,
+        username = %session.user.username,
+        "user registered"
+    );
     Ok(session)
 }
 
@@ -71,14 +76,27 @@ pub async fn login(
     auth_config: &Auth,
     input: LoginInput,
 ) -> Result<AuthSession, AppError> {
-    let credentials = queries::users::find_by_username(pool, &input.username)
-        .await?
-        .ok_or_else(AppError::invalid_credentials)?;
+    let credentials = match queries::users::find_by_username(pool, &input.username).await? {
+        Some(credentials) => credentials,
+        None => {
+            tracing::warn!(username = %input.username, "login failed: user not found");
+            return Err(AppError::invalid_credentials());
+        }
+    };
 
-    verify_password(&input.password, &credentials.password_hash)?;
+    if let Err(err) = verify_password(&input.password, &credentials.password_hash) {
+        tracing::warn!(username = %input.username, "login failed: bad password");
+        return Err(err);
+    }
 
     let user = credentials.into();
-    create_session(pool, auth_config, user).await
+    let session = create_session(pool, auth_config, user).await?;
+    tracing::info!(
+        user_id = %session.user.id,
+        username = %session.user.username,
+        "user logged in"
+    );
+    Ok(session)
 }
 
 async fn create_session<'e, E>(

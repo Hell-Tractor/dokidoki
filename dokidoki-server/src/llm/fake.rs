@@ -35,8 +35,20 @@ impl FakeLlmBackend {
 
 #[async_trait]
 impl LlmBackend for FakeLlmBackend {
-    async fn chat(&self, _request: ChatRequest) -> Result<String, AppError> {
-        Ok(self.next_response())
+    async fn chat(&self, request: ChatRequest) -> Result<String, AppError> {
+        let from_queue = {
+            let queue = self.queue.lock().expect("fake llm queue lock");
+            !queue.is_empty()
+        };
+        let response = self.next_response();
+        tracing::debug!(
+            conversation_id = %request.conversation_id,
+            turn_id = %request.turn_id,
+            from_queue,
+            reply_chars = response.len(),
+            "fake llm response"
+        );
+        Ok(response)
     }
 }
 

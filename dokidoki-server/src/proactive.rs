@@ -848,6 +848,16 @@ async fn generate_and_deliver(
             return Ok(false);
         }
     };
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        trigger = trigger.as_str(),
+        ask_user_busy_care,
+        re_engage_reason = ?re_engage_reason,
+        special = ?special.as_deref(),
+        schedule_change = schedule_change.is_some(),
+        message_count = request.messages.len(),
+        "proactive prompt assembled"
+    );
 
     let raw = match chat.llm.chat(request).await {
         Ok(raw) => raw,
@@ -864,6 +874,12 @@ async fn generate_and_deliver(
     };
 
     let bubbles = parser::parse_reply(&raw);
+    tracing::debug!(
+        conversation_id = %candidate.id,
+        trigger = trigger.as_str(),
+        bubbles = bubbles.len(),
+        "proactive reply parsed"
+    );
     if bubbles.is_empty() {
         tracing::warn!(
             conversation_id = %candidate.id,

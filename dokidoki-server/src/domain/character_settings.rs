@@ -99,6 +99,13 @@ pub async fn update_for_user(
     )
     .await?;
 
+    tracing::info!(
+        user_id,
+        character_id,
+        dnd_start = ?updated.dnd_start,
+        dnd_end = ?updated.dnd_end,
+        "character settings updated"
+    );
     Ok(updated.into())
 }
 
