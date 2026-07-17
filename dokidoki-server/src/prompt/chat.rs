@@ -160,59 +160,97 @@ pub fn format_icebreaker_user_message() -> &'static str {
     "（系统）请发起初次对话。"
 }
 
-/// 主动消息场景附加（System 后半）；按触发类型拼接 T-13～T-21。
-pub fn format_proactive_scene(
-    trigger: &str,
-    special_date_detail: Option<&str>,
-    ask_user_busy_care: bool,
-    schedule_change: Option<(&str, Option<&str>)>,
-    re_engage_reason: Option<&str>,
-) -> String {
-    let mut parts = Vec::new();
-    match trigger {
-        "pre_sleep" => {
-            parts.push(T21.to_owned());
-            if ask_user_busy_care {
+/// `re_engage` 中断方（写入场景 Prompt）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReEngageReason {
+    CharBusy,
+    UserBusy,
+}
+
+impl ReEngageReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CharBusy => "char_busy",
+            Self::UserBusy => "user_busy",
+        }
+    }
+}
+
+/// 主动消息命中结果：触发类型 + Prompt 场景参数（求值与投递共用，避免双轨）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProactiveScene {
+    PreSleep { ask_user_busy_care: bool },
+    DailyGreeting { special_date_detail: Option<String> },
+    ReEngage { reason: ReEngageReason },
+    SilenceWake,
+    ScheduleChange {
+        current_activity: String,
+        previous_activity: Option<String>,
+    },
+}
+
+impl ProactiveScene {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PreSleep { .. } => "pre_sleep",
+            Self::DailyGreeting { .. } => "daily_greeting",
+            Self::ReEngage { .. } => "re_engage",
+            Self::SilenceWake => "silence_wake",
+            Self::ScheduleChange { .. } => "schedule_change",
+        }
+    }
+}
+
+/// 主动消息场景附加（System 后半）；按 `ProactiveScene` 拼接 T-13～T-21。
+pub fn format_proactive_scene(scene: &ProactiveScene) -> String {
+    match scene {
+        ProactiveScene::PreSleep { ask_user_busy_care } => {
+            let mut parts = vec![T21.to_owned()];
+            if *ask_user_busy_care {
                 parts.push(
                     "【附加关心】你们因你去忙而中断过。可按性格决定是否轻轻问对方忙完了没；\
                      不要盘问，一句带过即可，晚安仍是主线。"
                         .into(),
                 );
             }
+            parts.join("\n\n")
         }
-        "daily_greeting" => {
-            parts.push(T13.to_owned());
-            if let Some(detail) = special_date_detail.filter(|d| !d.is_empty()) {
+        ProactiveScene::DailyGreeting {
+            special_date_detail,
+        } => {
+            let mut parts = vec![T13.to_owned()];
+            if let Some(detail) = special_date_detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+            {
                 parts.push(T18.replace("{special_date_detail}", detail));
             }
+            parts.join("\n\n")
         }
-        "schedule_change" => {
-            let (current, previous) = schedule_change.unwrap_or(("", None));
-            let previous_block = previous
+        ProactiveScene::ScheduleChange {
+            current_activity,
+            previous_activity,
+        } => {
+            let previous_block = previous_activity
+                .as_deref()
+                .map(str::trim)
                 .filter(|p| !p.is_empty())
                 .map(|p| format!("上一档活动是：{p}。\n"))
                 .unwrap_or_default();
-            parts.push(
-                T16.replace("{current_activity}", current)
-                    .replace("{previous_activity_block}", previous_block.trim_end()),
-            );
+            T16.replace("{current_activity}", current_activity)
+                .replace("{previous_activity_block}", previous_block.trim_end())
         }
-        "re_engage" => {
-            parts.push(T15.to_owned());
-            match re_engage_reason {
-                Some("char_busy") => parts.push(T15_CHAR_BUSY.to_owned()),
-                Some("user_busy") => parts.push(T15_USER_BUSY.to_owned()),
-                _ => {}
+        ProactiveScene::ReEngage { reason } => {
+            let mut parts = vec![T15.to_owned()];
+            match reason {
+                ReEngageReason::CharBusy => parts.push(T15_CHAR_BUSY.to_owned()),
+                ReEngageReason::UserBusy => parts.push(T15_USER_BUSY.to_owned()),
             }
+            parts.join("\n\n")
         }
-        "silence_wake" => parts.push(T14.to_owned()),
-        _ => {
-            parts.push(format!(
-                "【主动场景】\n你正在主动找对方说话（触发：{trigger}）。语气符合人设与当前状态。"
-            ));
-        }
+        ProactiveScene::SilenceWake => T14.to_owned(),
     }
-    parts.join("\n\n")
 }
 
 pub fn format_proactive_user_message(trigger: &str) -> String {
@@ -395,12 +433,15 @@ mod tests {
 
     #[test]
     fn proactive_daily_greeting_scene_includes_t13_and_optional_t18() {
-        let scene = format_proactive_scene("daily_greeting", None, false, None, None);
+        let scene = format_proactive_scene(&ProactiveScene::DailyGreeting {
+            special_date_detail: None,
+        });
         assert!(scene.contains("每日问候"));
         assert!(!scene.contains("特殊日期"));
 
-        let with_special =
-            format_proactive_scene("daily_greeting", Some("对方生日（07-11）"), false, None, None);
+        let with_special = format_proactive_scene(&ProactiveScene::DailyGreeting {
+            special_date_detail: Some("对方生日（07-11）".into()),
+        });
         assert!(with_special.contains("每日问候"));
         assert!(with_special.contains("特殊日期"));
         assert!(with_special.contains("对方生日（07-11）"));
@@ -408,18 +449,16 @@ mod tests {
 
     #[test]
     fn proactive_re_engage_scene_uses_t15_and_reason() {
-        let base = format_proactive_scene("re_engage", None, false, None, None);
-        assert!(base.contains("话题重启"));
-        assert!(!base.contains("重启原因"));
-
-        let char_busy =
-            format_proactive_scene("re_engage", None, false, None, Some("char_busy"));
+        let char_busy = format_proactive_scene(&ProactiveScene::ReEngage {
+            reason: ReEngageReason::CharBusy,
+        });
         assert!(char_busy.contains("话题重启"));
         assert!(char_busy.contains("你去忙刚结束"));
         assert!(char_busy.contains("忙完啦"));
 
-        let user_busy =
-            format_proactive_scene("re_engage", None, false, None, Some("user_busy"));
+        let user_busy = format_proactive_scene(&ProactiveScene::ReEngage {
+            reason: ReEngageReason::UserBusy,
+        });
         assert!(user_busy.contains("话题重启"));
         assert!(user_busy.contains("对方去忙"));
         assert!(user_busy.contains("催促"));
@@ -427,18 +466,22 @@ mod tests {
 
     #[test]
     fn proactive_silence_wake_scene_uses_t14() {
-        let scene = format_proactive_scene("silence_wake", None, false, None, None);
+        let scene = format_proactive_scene(&ProactiveScene::SilenceWake);
         assert!(scene.contains("沉默唤醒"));
         assert!(scene.contains("很久没回"));
     }
 
     #[test]
     fn proactive_pre_sleep_scene_uses_t21_and_optional_care() {
-        let scene = format_proactive_scene("pre_sleep", None, false, None, None);
+        let scene = format_proactive_scene(&ProactiveScene::PreSleep {
+            ask_user_busy_care: false,
+        });
         assert!(scene.contains("睡前晚安"));
         assert!(!scene.contains("附加关心"));
 
-        let with_care = format_proactive_scene("pre_sleep", None, true, None, None);
+        let with_care = format_proactive_scene(&ProactiveScene::PreSleep {
+            ask_user_busy_care: true,
+        });
         assert!(with_care.contains("睡前晚安"));
         assert!(with_care.contains("附加关心"));
         assert!(with_care.contains("忙完"));
@@ -446,13 +489,10 @@ mod tests {
 
     #[test]
     fn proactive_schedule_change_scene_uses_t16() {
-        let scene = format_proactive_scene(
-            "schedule_change",
-            None,
-            false,
-            Some(("回家做饭", Some("录音棚配音"))),
-            None,
-        );
+        let scene = format_proactive_scene(&ProactiveScene::ScheduleChange {
+            current_activity: "回家做饭".into(),
+            previous_activity: Some("录音棚配音".into()),
+        });
         assert!(scene.contains("日程切换"));
         assert!(scene.contains("回家做饭"));
         assert!(scene.contains("录音棚配音"));

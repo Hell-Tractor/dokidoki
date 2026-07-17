@@ -133,13 +133,8 @@ pub async fn build_proactive_request(
     user_id: &str,
     conversation_id: &str,
     turn_id: &str,
-    trigger: &str,
+    scene: &crate::prompt::ProactiveScene,
     keep_recent_turns: u32,
-    special_date_detail: Option<&str>,
-    ask_user_busy_care: bool,
-    // `(current_activity, previous_activity)` for schedule_change
-    schedule_change: Option<(&str, Option<&str>)>,
-    re_engage_reason: Option<&str>,
 ) -> Result<ChatRequest, AppError> {
     let conversation = load_owned_conversation(pool, user_id, conversation_id).await?;
     let ctx = load_prompt_context(pool, user_id, &conversation).await?;
@@ -153,13 +148,7 @@ pub async fn build_proactive_request(
         ctx.summary.as_deref(),
     );
     system.push_str("\n\n");
-    system.push_str(&format_proactive_scene(
-        trigger,
-        special_date_detail,
-        ask_user_busy_care,
-        schedule_change,
-        re_engage_reason,
-    ));
+    system.push_str(&format_proactive_scene(scene));
 
     let recent =
         messages::list_text_messages_for_recent_turns(pool, conversation_id, keep_recent_turns)
@@ -197,7 +186,7 @@ pub async fn build_proactive_request(
 
     llm_messages.push(LlmMessage {
         role: "user".into(),
-        content: format_proactive_user_message(trigger),
+        content: format_proactive_user_message(scene.as_str()),
     });
 
     Ok(ChatRequest {

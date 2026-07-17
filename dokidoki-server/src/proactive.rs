@@ -22,10 +22,7 @@ use crate::{
 };
 
 pub use gates::{is_at_daily_cap, is_blocked_by_dnd, passes_probability_gate};
-pub use triggers::{
-    DailyGreetingExtras, PreSleepExtras, ReEngageExtras, ReEngageReason, ScheduleChangeExtras,
-    TriggerContext, TriggerType,
-};
+pub use triggers::{ReEngageReason, TriggerFire};
 
 /// 与 schedule refresh 同循环调用：超时落地 winding_down，再遍历会话投递主动消息。
 pub async fn tick(chat: Arc<ChatService>) -> Result<(), AppError> {
@@ -143,59 +140,43 @@ async fn process_candidate(
         return Ok(false);
     }
 
-    let availability = candidate.availability.unwrap_or(crate::domain::Availability::Medium);
-    let (pre_sleep_eligible, pre_sleep_extras) =
-        evaluate_pre_sleep(chat, candidate, now).await?;
-    let (daily_greeting_eligible, greeting_extras) =
-        evaluate_daily_greeting(chat, candidate, now).await?;
+    // 按优先级短路：pre_sleep → daily_greeting → re_engage → silence_wake → schedule_change
+    let fire = if let Some(f) = evaluate_pre_sleep(chat, candidate, now).await? {
+        Some(f)
+    } else if let Some(f) = evaluate_daily_greeting(chat, candidate, now).await? {
+        Some(f)
+    } else {
+        let availability = candidate
+            .availability
+            .unwrap_or(crate::domain::Availability::Medium);
+        let persona = characters::find_persona(&chat.db, character_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("角色不存在"))?;
+        let base = chat.proactive_config.base_probability(availability);
 
-    let persona = characters::find_persona(&chat.db, character_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("角色不存在"))?;
+        if let Some(f) = evaluate_re_engage(candidate, now, &persona.proactive, base) {
+            Some(f)
+        } else if let Some(f) =
+            evaluate_silence_wake(candidate, now, availability, &persona.proactive, base)
+        {
+            Some(f)
+        } else {
+            evaluate_schedule_change(
+                chat,
+                candidate,
+                now,
+                availability,
+                persona.proactive.schedule_change_probability,
+                persona.proactive.probability_factor,
+            )
+            .await?
+        }
+    };
 
-    let (re_engage_eligible, re_engage_extras) = evaluate_re_engage(
-        candidate,
-        now,
-        &persona.proactive,
-        chat.proactive_config.base_probability(availability),
-    );
-    let silence_wake_eligible = evaluate_silence_wake(
-        candidate,
-        now,
-        availability,
-        &persona.proactive,
-        chat.proactive_config.base_probability(availability),
-    );
-    let (schedule_change_eligible, schedule_change_extras) = evaluate_schedule_change(
-        chat,
-        candidate,
-        now,
-        availability,
-        persona.proactive.schedule_change_probability,
-        persona.proactive.probability_factor,
-    )
-    .await?;
-
-    let trigger = triggers::select_trigger(&TriggerContext {
-        conversation_id,
-        status: candidate.status,
-        availability,
-        pre_sleep_eligible,
-        daily_greeting_eligible,
-        re_engage_eligible,
-        silence_wake_eligible,
-        schedule_change_eligible,
-    });
-    let Some(trigger) = trigger else {
+    let Some(fire) = fire else {
         tracing::trace!(
             conversation_id,
             status = %candidate.status,
-            availability = %availability,
-            pre_sleep_eligible,
-            daily_greeting_eligible,
-            re_engage_eligible,
-            silence_wake_eligible,
-            schedule_change_eligible,
             "proactive skipped: no trigger matched"
         );
         return Ok(false);
@@ -205,21 +186,11 @@ async fn process_candidate(
         conversation_id,
         user_id,
         character_id,
-        trigger = trigger.as_str(),
-        availability = %availability,
+        trigger = fire.as_str(),
         "proactive attempting deliver"
     );
 
-    let delivered = generate_and_deliver(
-        chat,
-        candidate,
-        trigger,
-        &greeting_extras,
-        &pre_sleep_extras,
-        &re_engage_extras,
-        &schedule_change_extras,
-    )
-    .await?;
+    let delivered = generate_and_deliver(chat, candidate, &fire).await?;
     if !delivered {
         return Ok(false);
     }
@@ -231,12 +202,12 @@ async fn process_candidate(
         user_id,
         character_id,
         conversation_id,
-        trigger.as_str(),
+        fire.as_str(),
     )
     .await?;
     character_states::touch_last_proactive_at(&chat.db, character_id, Utc::now()).await?;
 
-    if trigger == TriggerType::ReEngage {
+    if matches!(fire, TriggerFire::ReEngage { .. }) {
         conversation_queries::enter_active(&chat.db, conversation_id).await?;
         tracing::info!(
             conversation_id,
@@ -244,12 +215,18 @@ async fn process_candidate(
         );
     }
 
+    let is_user_birthday = matches!(
+        &fire,
+        TriggerFire::DailyGreeting {
+            special_date_detail: Some(d)
+        } if d.contains("生日")
+    );
     tracing::info!(
         conversation_id,
         user_id,
         character_id,
-        trigger = trigger.as_str(),
-        is_user_birthday = greeting_extras.is_user_birthday,
+        trigger = fire.as_str(),
+        is_user_birthday,
         "proactive delivered"
     );
 
@@ -274,18 +251,16 @@ async fn evaluate_pre_sleep(
     chat: &Arc<ChatService>,
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
-) -> Result<(bool, PreSleepExtras), AppError> {
-    let extras = PreSleepExtras {
-        ask_user_busy_care: candidate.status
-            == crate::domain::ConversationStatus::PausedCharBusy,
-    };
+) -> Result<Option<TriggerFire>, AppError> {
+    let ask_user_busy_care =
+        candidate.status == crate::domain::ConversationStatus::PausedCharBusy;
 
     let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
     else {
-        return Ok((false, extras));
+        return Ok(None);
     };
     let schedule = match schedule::Schedule::try_from_json_value(raw) {
-        Ok(None) => return Ok((false, extras)),
+        Ok(None) => return Ok(None),
         Ok(Some(schedule)) => schedule,
         Err(err) => {
             tracing::warn!(
@@ -293,7 +268,7 @@ async fn evaluate_pre_sleep(
                 character_id = %candidate.character_id,
                 "pre_sleep: invalid schedule_json: {err}"
             );
-            return Ok((false, extras));
+            return Ok(None);
         }
     };
 
@@ -303,7 +278,7 @@ async fn evaluate_pre_sleep(
             character_id = %candidate.character_id,
             "pre_sleep: no upcoming sleep window"
         );
-        return Ok((false, extras));
+        return Ok(None);
     };
 
     let cfg = &chat.proactive_config;
@@ -318,7 +293,7 @@ async fn evaluate_pre_sleep(
             minutes_until_sleep = status.minutes_until_sleep,
             "pre_sleep: before fixed fire time"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     let (char_day_start, char_day_end) =
@@ -327,7 +302,7 @@ async fn evaluate_pre_sleep(
         &chat.db,
         &candidate.user_id,
         &candidate.character_id,
-        TriggerType::PreSleep.as_str(),
+        "pre_sleep",
         char_day_start,
         char_day_end,
     )
@@ -338,30 +313,27 @@ async fn evaluate_pre_sleep(
             character_id = %candidate.character_id,
             "pre_sleep: already sent today"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     tracing::debug!(
         conversation_id = %candidate.id,
         minutes_until_sleep = status.minutes_until_sleep,
-        ask_user_busy_care = extras.ask_user_busy_care,
+        ask_user_busy_care,
         "pre_sleep eligible"
     );
-    Ok((true, extras))
+    Ok(Some(TriggerFire::PreSleep { ask_user_busy_care }))
 }
 
 async fn evaluate_daily_greeting(
     chat: &Arc<ChatService>,
     candidate: &conversation_queries::ProactiveCandidateRow,
     now: chrono::DateTime<Utc>,
-) -> Result<(bool, DailyGreetingExtras), AppError> {
-    let mut extras = DailyGreetingExtras::default();
-
+) -> Result<Option<TriggerFire>, AppError> {
     let user = users::find_by_id(&chat.db, &candidate.user_id)
         .await?
         .ok_or_else(|| AppError::not_found("用户不存在"))?;
-    extras.user_birthday = user.birthday;
-    extras.is_user_birthday =
+    let is_user_birthday =
         triggers::is_birthday_today(user.birthday, now, &candidate.timezone)?;
 
     let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
@@ -371,7 +343,7 @@ async fn evaluate_daily_greeting(
             character_id = %candidate.character_id,
             "daily_greeting: character has no schedule_json"
         );
-        return Ok((false, extras));
+        return Ok(None);
     };
     let schedule = match schedule::Schedule::try_from_json_value(raw) {
         Ok(None) => {
@@ -380,7 +352,7 @@ async fn evaluate_daily_greeting(
                 character_id = %candidate.character_id,
                 "daily_greeting: empty schedule_json"
             );
-            return Ok((false, extras));
+            return Ok(None);
         }
         Ok(Some(schedule)) => schedule,
         Err(err) => {
@@ -389,7 +361,7 @@ async fn evaluate_daily_greeting(
                 character_id = %candidate.character_id,
                 "daily_greeting: invalid schedule_json: {err}"
             );
-            return Ok((false, extras));
+            return Ok(None);
         }
     };
 
@@ -399,7 +371,7 @@ async fn evaluate_daily_greeting(
             character_id = %candidate.character_id,
             "daily_greeting: not in kind=wake slot"
         );
-        return Ok((false, extras));
+        return Ok(None);
     };
 
     let cfg = &chat.proactive_config;
@@ -415,7 +387,7 @@ async fn evaluate_daily_greeting(
             minutes_into_slot = wakeup.minutes_into_slot,
             "daily_greeting: before fixed fire time"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     // 「每角色每日一次」按角色日程时区自然日统计。
@@ -425,7 +397,7 @@ async fn evaluate_daily_greeting(
         &chat.db,
         &candidate.user_id,
         &candidate.character_id,
-        TriggerType::DailyGreeting.as_str(),
+        "daily_greeting",
         char_day_start,
         char_day_end,
     )
@@ -436,17 +408,20 @@ async fn evaluate_daily_greeting(
             character_id = %candidate.character_id,
             "daily_greeting: already sent today"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
+    let special_date_detail = special_date_detail(is_user_birthday, user.birthday, &[]);
     tracing::debug!(
         conversation_id = %candidate.id,
         activity = %wakeup.activity,
         minutes_into_slot = wakeup.minutes_into_slot,
-        is_user_birthday = extras.is_user_birthday,
+        is_user_birthday,
         "daily_greeting eligible"
     );
-    Ok((true, extras))
+    Ok(Some(TriggerFire::DailyGreeting {
+        special_date_detail,
+    }))
 }
 
 fn evaluate_re_engage(
@@ -454,8 +429,7 @@ fn evaluate_re_engage(
     now: chrono::DateTime<Utc>,
     proactive: &crate::domain::persona::ProactiveConfig,
     availability_base: f64,
-) -> (bool, ReEngageExtras) {
-    let mut extras = ReEngageExtras::default();
+) -> Option<TriggerFire> {
     let character_id = candidate.character_id.as_str();
     let factor = proactive.probability_factor;
 
@@ -464,9 +438,7 @@ fn evaluate_re_engage(
         candidate.activity_ends_at,
         now,
     ) {
-        let Some(anchor) = candidate.activity_ends_at else {
-            return (false, extras);
-        };
+        let anchor = candidate.activity_ends_at?;
         let interval = triggers::retry_interval_mins(
             character_id,
             anchor,
@@ -474,9 +446,7 @@ fn evaluate_re_engage(
             proactive.re_engage_retry_max_minutes,
             "re_engage_char",
         );
-        let Some(bucket) = triggers::retry_bucket_index(now, anchor, interval) else {
-            return (false, extras);
-        };
+        let bucket = triggers::retry_bucket_index(now, anchor, interval)?;
         let final_p = (availability_base * factor).clamp(0.0, 1.0);
         let (pass, roll) = triggers::retry_bucket_probability_passes(
             character_id,
@@ -494,9 +464,8 @@ fn evaluate_re_engage(
                 roll,
                 "re_engage: char_busy bucket miss"
             );
-            return (false, extras);
+            return None;
         }
-        extras.reason = Some(ReEngageReason::CharBusy);
         tracing::debug!(
             conversation_id = %candidate.id,
             activity_ends_at = ?candidate.activity_ends_at,
@@ -505,7 +474,9 @@ fn evaluate_re_engage(
             final_p,
             "re_engage eligible: paused_char_busy"
         );
-        return (true, extras);
+        return Some(TriggerFire::ReEngage {
+            reason: ReEngageReason::CharBusy,
+        });
     }
 
     if let Some(curve_p) = triggers::user_busy_re_engage_probability(
@@ -519,11 +490,9 @@ fn evaluate_re_engage(
                 conversation_id = %candidate.id,
                 "re_engage: paused_user_busy still in min_delay"
             );
-            return (false, extras);
+            return None;
         }
-        let Some(anchor) = candidate.paused_at else {
-            return (false, extras);
-        };
+        let anchor = candidate.paused_at?;
         let curve_start = anchor
             + chrono::Duration::minutes(i64::from(proactive.user_busy_reengage.min_delay_minutes));
         let interval = triggers::retry_interval_mins(
@@ -533,9 +502,7 @@ fn evaluate_re_engage(
             proactive.re_engage_retry_max_minutes,
             "re_engage_user",
         );
-        let Some(bucket) = triggers::retry_bucket_index(now, curve_start, interval) else {
-            return (false, extras);
-        };
+        let bucket = triggers::retry_bucket_index(now, curve_start, interval)?;
         let final_p = (curve_p * availability_base * factor).clamp(0.0, 1.0);
         let (pass, roll) = triggers::retry_bucket_probability_passes(
             character_id,
@@ -554,9 +521,8 @@ fn evaluate_re_engage(
                 roll,
                 "re_engage: user_busy bucket miss"
             );
-            return (false, extras);
+            return None;
         }
-        extras.reason = Some(ReEngageReason::UserBusy);
         tracing::debug!(
             conversation_id = %candidate.id,
             curve_p,
@@ -565,9 +531,11 @@ fn evaluate_re_engage(
             final_p,
             "re_engage eligible: paused_user_busy"
         );
-        return (true, extras);
+        return Some(TriggerFire::ReEngage {
+            reason: ReEngageReason::UserBusy,
+        });
     }
-    (false, extras)
+    None
 }
 
 fn evaluate_silence_wake(
@@ -576,7 +544,7 @@ fn evaluate_silence_wake(
     availability: crate::domain::Availability,
     proactive: &crate::domain::persona::ProactiveConfig,
     availability_base: f64,
-) -> bool {
+) -> Option<TriggerFire> {
     if !triggers::is_silence_wake_eligible(
         candidate.status,
         candidate.last_user_message_at,
@@ -584,11 +552,9 @@ fn evaluate_silence_wake(
         proactive.silence_after_hours,
         availability,
     ) {
-        return false;
+        return None;
     }
-    let Some(last_user) = candidate.last_user_message_at else {
-        return false;
-    };
+    let last_user = candidate.last_user_message_at?;
     let silence_ms = (proactive.silence_after_hours * 3_600_000.0).round() as i64;
     let anchor = last_user + chrono::Duration::milliseconds(silence_ms);
     let interval = triggers::retry_interval_mins(
@@ -598,9 +564,7 @@ fn evaluate_silence_wake(
         proactive.silence_wake_retry_max_minutes,
         "silence_wake",
     );
-    let Some(bucket) = triggers::retry_bucket_index(now, anchor, interval) else {
-        return false;
-    };
+    let bucket = triggers::retry_bucket_index(now, anchor, interval)?;
     let final_p = (availability_base * proactive.probability_factor).clamp(0.0, 1.0);
     let (pass, roll) = triggers::retry_bucket_probability_passes(
         &candidate.character_id,
@@ -618,7 +582,7 @@ fn evaluate_silence_wake(
             roll,
             "silence_wake: bucket miss"
         );
-        return false;
+        return None;
     }
     tracing::debug!(
         conversation_id = %candidate.id,
@@ -628,7 +592,7 @@ fn evaluate_silence_wake(
         interval,
         "silence_wake eligible"
     );
-    true
+    Some(TriggerFire::SilenceWake)
 }
 
 async fn evaluate_schedule_change(
@@ -638,11 +602,9 @@ async fn evaluate_schedule_change(
     availability: crate::domain::Availability,
     schedule_change_probability: f64,
     probability_factor: f64,
-) -> Result<(bool, ScheduleChangeExtras), AppError> {
-    let mut extras = ScheduleChangeExtras::default();
-
+) -> Result<Option<TriggerFire>, AppError> {
     if candidate.status != crate::domain::ConversationStatus::Active {
-        return Ok((false, extras));
+        return Ok(None);
     }
     if !availability.at_least_medium() {
         tracing::trace!(
@@ -650,15 +612,15 @@ async fn evaluate_schedule_change(
             availability = %availability,
             "schedule_change: availability too low"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     let Some(raw) = characters::find_schedule_json(&chat.db, &candidate.character_id).await?
     else {
-        return Ok((false, extras));
+        return Ok(None);
     };
     let schedule = match schedule::Schedule::try_from_json_value(raw) {
-        Ok(None) => return Ok((false, extras)),
+        Ok(None) => return Ok(None),
         Ok(Some(schedule)) => schedule,
         Err(err) => {
             tracing::warn!(
@@ -666,7 +628,7 @@ async fn evaluate_schedule_change(
                 character_id = %candidate.character_id,
                 "schedule_change: invalid schedule_json: {err}"
             );
-            return Ok((false, extras));
+            return Ok(None);
         }
     };
 
@@ -675,10 +637,8 @@ async fn evaluate_schedule_change(
             conversation_id = %candidate.id,
             "schedule_change: not in kind=custom slot"
         );
-        return Ok((false, extras));
+        return Ok(None);
     };
-    extras.current_activity = status.activity.clone();
-    extras.previous_activity = status.previous_activity.clone();
 
     let cfg = &chat.proactive_config;
     if !in_schedule_change_window(
@@ -693,14 +653,14 @@ async fn evaluate_schedule_change(
             minutes_into_slot = status.minutes_into_slot,
             "schedule_change: outside lead-in window"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     let already = proactive_logs::count_trigger_between(
         &chat.db,
         &candidate.user_id,
         &candidate.character_id,
-        TriggerType::ScheduleChange.as_str(),
+        "schedule_change",
         status.slot_started_at,
         now + chrono::Duration::seconds(1),
     )
@@ -711,7 +671,7 @@ async fn evaluate_schedule_change(
             activity = %status.activity,
             "schedule_change: already sent for this slot"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     let base = chat.proactive_config.base_probability(availability);
@@ -733,7 +693,7 @@ async fn evaluate_schedule_change(
             roll,
             "schedule_change: personality probability miss (once per slot)"
         );
-        return Ok((false, extras));
+        return Ok(None);
     }
 
     tracing::debug!(
@@ -746,7 +706,10 @@ async fn evaluate_schedule_change(
         roll,
         "schedule_change eligible"
     );
-    Ok((true, extras))
+    Ok(Some(TriggerFire::ScheduleChange {
+        current_activity: status.activity,
+        previous_activity: status.previous_activity,
+    }))
 }
 
 fn character_local_day_bounds(
@@ -772,19 +735,23 @@ fn character_local_day_bounds(
     ))
 }
 
-fn special_date_detail(extras: &DailyGreetingExtras) -> Option<String> {
-    if !extras.has_special_date() {
+fn special_date_detail(
+    is_user_birthday: bool,
+    user_birthday: Option<chrono::NaiveDate>,
+    holiday_names: &[String],
+) -> Option<String> {
+    if !is_user_birthday && holiday_names.is_empty() {
         return None;
     }
     let mut parts = Vec::new();
-    if extras.is_user_birthday {
-        if let Some(date) = extras.user_birthday {
+    if is_user_birthday {
+        if let Some(date) = user_birthday {
             parts.push(format!("对方生日（{}）", date.format("%m-%d")));
         } else {
             parts.push("对方生日".into());
         }
     }
-    for name in &extras.holiday_names {
+    for name in holiday_names {
         parts.push(name.clone());
     }
     Some(parts.join("、"))
@@ -794,45 +761,17 @@ fn special_date_detail(extras: &DailyGreetingExtras) -> Option<String> {
 async fn generate_and_deliver(
     chat: &Arc<ChatService>,
     candidate: &conversation_queries::ProactiveCandidateRow,
-    trigger: TriggerType,
-    greeting_extras: &DailyGreetingExtras,
-    pre_sleep_extras: &PreSleepExtras,
-    re_engage_extras: &ReEngageExtras,
-    schedule_change_extras: &ScheduleChangeExtras,
+    fire: &TriggerFire,
 ) -> Result<bool, AppError> {
     let turn_id = Uuid::new_v4().to_string();
-    let special = if trigger == TriggerType::DailyGreeting {
-        special_date_detail(greeting_extras)
-    } else {
-        None
-    };
-    let ask_user_busy_care =
-        trigger == TriggerType::PreSleep && pre_sleep_extras.ask_user_busy_care;
-    let schedule_change = if trigger == TriggerType::ScheduleChange {
-        Some((
-            schedule_change_extras.current_activity.as_str(),
-            schedule_change_extras.previous_activity.as_deref(),
-        ))
-    } else {
-        None
-    };
-    let re_engage_reason = if trigger == TriggerType::ReEngage {
-        re_engage_extras.reason.map(|r| r.as_str())
-    } else {
-        None
-    };
 
     let request = match crate::chat::build_proactive_request(
         &chat.db,
         &candidate.user_id,
         &candidate.id,
         &turn_id,
-        trigger.as_str(),
+        fire,
         chat.summary_config.keep_recent_turns,
-        special.as_deref(),
-        ask_user_busy_care,
-        schedule_change,
-        re_engage_reason,
     )
     .await
     {
@@ -842,7 +781,7 @@ async fn generate_and_deliver(
                 conversation_id = %candidate.id,
                 user_id = %candidate.user_id,
                 character_id = %candidate.character_id,
-                trigger = trigger.as_str(),
+                trigger = fire.as_str(),
                 "proactive prompt build failed: {err}"
             );
             return Ok(false);
@@ -850,11 +789,7 @@ async fn generate_and_deliver(
     };
     tracing::debug!(
         conversation_id = %candidate.id,
-        trigger = trigger.as_str(),
-        ask_user_busy_care,
-        re_engage_reason = ?re_engage_reason,
-        special = ?special.as_deref(),
-        schedule_change = schedule_change.is_some(),
+        trigger = fire.as_str(),
         message_count = request.messages.len(),
         "proactive prompt assembled"
     );
@@ -866,7 +801,7 @@ async fn generate_and_deliver(
                 conversation_id = %candidate.id,
                 user_id = %candidate.user_id,
                 character_id = %candidate.character_id,
-                trigger = trigger.as_str(),
+                trigger = fire.as_str(),
                 "proactive llm failed (skip, not counted): {err}"
             );
             return Ok(false);
@@ -876,7 +811,7 @@ async fn generate_and_deliver(
     let bubbles = parser::parse_reply(&raw);
     tracing::debug!(
         conversation_id = %candidate.id,
-        trigger = trigger.as_str(),
+        trigger = fire.as_str(),
         bubbles = bubbles.len(),
         "proactive reply parsed"
     );
@@ -885,7 +820,7 @@ async fn generate_and_deliver(
             conversation_id = %candidate.id,
             user_id = %candidate.user_id,
             character_id = %candidate.character_id,
-            trigger = trigger.as_str(),
+            trigger = fire.as_str(),
             raw_len = raw.len(),
             "proactive empty reply (skip, not counted)"
         );
@@ -894,7 +829,7 @@ async fn generate_and_deliver(
 
     tracing::debug!(
         conversation_id = %candidate.id,
-        trigger = trigger.as_str(),
+        trigger = fire.as_str(),
         bubbles = bubbles.len(),
         "proactive delivering bubbles"
     );
