@@ -132,6 +132,40 @@ pub fn retry_bucket_probability_passes(
     (roll < final_p.clamp(0.0, 1.0), roll)
 }
 
+/// 一次重试桶抽样结果（`passed == false` 表示本桶未命中）。
+#[derive(Debug, Clone, Copy)]
+pub struct RetryBucketAttempt {
+    pub bucket: u32,
+    pub interval: u32,
+    pub final_p: f64,
+    pub roll: f64,
+    pub passed: bool,
+}
+
+/// 合成：算 interval → bucket → 确定性抽样。`now < anchor` 或 interval 无效时返回 `None`。
+pub fn try_retry_bucket(
+    character_id: &str,
+    now: DateTime<Utc>,
+    anchor: DateTime<Utc>,
+    min_minutes: u32,
+    max_minutes: u32,
+    salt: &str,
+    final_p: f64,
+) -> Option<RetryBucketAttempt> {
+    let interval = retry_interval_mins(character_id, anchor, min_minutes, max_minutes, salt);
+    let bucket = retry_bucket_index(now, anchor, interval)?;
+    let final_p = final_p.clamp(0.0, 1.0);
+    let (passed, roll) =
+        retry_bucket_probability_passes(character_id, anchor, bucket, salt, final_p);
+    Some(RetryBucketAttempt {
+        bucket,
+        interval,
+        final_p,
+        roll,
+        passed,
+    })
+}
+
 fn hash_unit(parts: &[&[u8]]) -> f64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -281,6 +315,24 @@ mod tests {
             Some(1)
         );
         assert!(retry_bucket_index(anchor - Duration::minutes(1), anchor, interval).is_none());
+    }
+
+    #[test]
+    fn try_retry_bucket_none_before_anchor() {
+        let anchor = Utc.with_ymd_and_hms(2026, 7, 14, 10, 0, 0).unwrap();
+        assert!(try_retry_bucket(
+            "c1",
+            anchor - Duration::minutes(1),
+            anchor,
+            15,
+            45,
+            "re_engage_char",
+            1.0,
+        )
+        .is_none());
+        let attempt = try_retry_bucket("c1", anchor, anchor, 15, 45, "re_engage_char", 1.0).unwrap();
+        assert_eq!(attempt.bucket, 0);
+        assert!(attempt.passed); // final_p = 1.0
     }
 
     #[test]
