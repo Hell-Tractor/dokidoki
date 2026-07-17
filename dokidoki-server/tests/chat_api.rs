@@ -27,12 +27,12 @@ async fn create_test_conversation(
     app: &mut dokidoki_server::test_support::TestApp,
     token: &str,
 ) -> String {
-    // 破冰走 FakeLlm；[NO_REPLY] → 无气泡 → rollback，会话保持无角色消息。
+    // 破冰走 FakeLlm；no_reply → 无气泡 → rollback，会话保持无角色消息。
     // 再显式标记 first_contact_done，避免后续 get_or_create 重复触发破冰。
     post_json(
         app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[NO_REPLY]"] }),
+        json!({ "responses": [r#"{"action":{"type":"no_reply"}}"#] }),
     )
     .await;
 
@@ -65,7 +65,7 @@ async fn user_message_triggers_fake_llm_character_reply() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY] 怎么了？"] }),
+        json!({ "responses": [r#"{"action":{"type":"reply","bubbles":["怎么了？"]}}"#] }),
     )
     .await;
 
@@ -104,7 +104,7 @@ async fn fake_llm_splits_multiple_bubbles() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY] 第一句|||第二句"] }),
+        json!({ "responses": [r#"{"action":{"type":"reply","bubbles":["第一句","第二句"]}}"#] }),
     )
     .await;
 
@@ -181,7 +181,7 @@ async fn ws_receives_character_reply_after_subscribe() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY] WS 收到了"] }),
+        json!({ "responses": [r#"{"action":{"type":"reply","bubbles":["WS 收到了"]}}"#] }),
     )
     .await;
 
@@ -220,7 +220,7 @@ async fn no_reply_produces_no_character_message() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[NO_REPLY]"] }),
+        json!({ "responses": [r#"{"action":{"type":"no_reply"}}"#] }),
     )
     .await;
 
@@ -255,7 +255,7 @@ async fn end_topic_sets_winding_down_status() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[END_TOPIC]我先去上课了|||等下聊"] }),
+        json!({ "responses": [r#"{"action":{"type":"end_topic","bubbles":["我先去上课了","等下聊"]}}"#] }),
     )
     .await;
 
@@ -366,7 +366,7 @@ async fn store_memory_action_persists_and_upserts_by_key() {
         "/api/v1/dev/llm/queue",
         json!({
             "responses": [
-                "[STORE_MEMORY]用户不喜欢草莓|permanent|food.strawberry\n[REPLY]记住了"
+                r#"{"store_memories":[{"content":"用户不喜欢草莓","memory_type":"permanent","memory_key":"food.strawberry"}],"action":{"type":"reply","bubbles":["记住了"]}}"#
             ]
         }),
     )
@@ -402,7 +402,7 @@ async fn store_memory_action_persists_and_upserts_by_key() {
         "/api/v1/dev/llm/queue",
         json!({
             "responses": [
-                "[STORE_MEMORY]用户喜欢草莓|permanent|food.strawberry\n[REPLY]好"
+                r#"{"store_memories":[{"content":"用户喜欢草莓","memory_type":"permanent","memory_key":"food.strawberry"}],"action":{"type":"reply","bubbles":["好"]}}"#
             ]
         }),
     )
@@ -481,7 +481,7 @@ async fn forget_memory_action_removes_matching_memory() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[FORGET_MEMORY]food.strawberry\n[REPLY]好"] }),
+        json!({ "responses": [r#"{"forget_memories":[{"target":"food.strawberry"}],"action":{"type":"reply","bubbles":["好"]}}"#] }),
     )
     .await;
 
@@ -520,7 +520,7 @@ async fn read_receipt_arrives_before_character_reply() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY] 嗯？"] }),
+        json!({ "responses": [r#"{"action":{"type":"reply","bubbles":["嗯？"]}}"#] }),
     )
     .await;
 

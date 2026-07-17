@@ -2,10 +2,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{config::Llm, error::AppError};
 
-use super::{backend::LlmBackend, ChatRequest, LlmMessage};
+use super::{backend::LlmBackend, schema, ChatRequest, LlmMessage};
 
 pub struct HttpLlmBackend {
     client: reqwest::Client,
@@ -38,6 +39,8 @@ impl HttpLlmBackend {
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<ApiMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<Value>,
 }
 
 #[derive(Serialize)]
@@ -79,6 +82,7 @@ impl LlmBackend for HttpLlmBackend {
                 .into_iter()
                 .map(|LlmMessage { role, content }| ApiMessage { role, content })
                 .collect(),
+            response_format: schema::response_format_payload(&request.response_format),
         };
 
         let started = std::time::Instant::now();

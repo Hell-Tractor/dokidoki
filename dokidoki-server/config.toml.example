@@ -12,11 +12,14 @@ url = "mysql://dokidoki:password@mysql:3306/dokidoki"
 
 [llm]
 mode = "fake"                           # fake | http
-fake_default = "[REPLY] 你好，我是测试角色"
+# 角色回合默认 JSON；摘要路径会强制 response_format=off
+fake_default = '{"action":{"type":"reply","bubbles":["你好，我是测试角色"]}}'
 base_url = "https://api.deepseek.com/v1"
 api_key = "sk-..."
 model = "deepseek-chat"
 vision_model = "deepseek-chat"        # 支持 vision 时填写
+# off | json_object（DeepSeek 等）| json_schema（OpenAI strict）
+response_format = "json_object"
 
 [upload]
 dir = "/data/uploads"                   # 角色头像在 avatars/ 子目录
@@ -29,6 +32,10 @@ bubble_delay_base_ms = 400
 bubble_delay_per_char_ms = 50
 # winding_down 超时（秒）：用户未回应则按 winding_reason 落地终态
 winding_down_timeout_secs = 300
+# 气泡格式硬约束：超长 / JSON 不合格时打回重试
+max_bubble_chars = 20
+max_bubbles = 100
+llm_format_retries = 2
 
 # M-15 忙碌回复延迟：reply_wait = sample(availability) × reply_delay_factor × jitter
 # reply_delay_factor 来自角色 persona_json.reply_delay_factor（[min, max]），缺省 1.0

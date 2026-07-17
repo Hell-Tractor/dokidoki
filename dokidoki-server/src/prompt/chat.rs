@@ -302,7 +302,7 @@ mod tests {
         assert!(prompt.contains("你是 小爱"));
         assert!(prompt.contains("黏人、撒娇"));
         assert!(prompt.contains("你称呼对方为「阿明」"));
-        assert!(prompt.contains("[REPLY]"));
+        assert!(prompt.contains("action.type = \"reply\"") || prompt.contains("\"type\": \"reply\"") || prompt.contains(r#""type":"reply""#));
         assert!(prompt.contains("skip_reply 倾向：low"));
     }
 

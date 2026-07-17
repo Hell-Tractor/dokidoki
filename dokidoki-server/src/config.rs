@@ -38,11 +38,12 @@ impl Config {
             },
             llm: Llm {
                 mode: "fake".into(),
-                fake_default: "[REPLY]".into(),
+                fake_default: r#"{"action":{"type":"reply","bubbles":["你好"]}}"#.into(),
                 base_url: "http://localhost".into(),
                 api_key: "test".into(),
                 model: "test".into(),
                 vision_model: "test".into(),
+                response_format: "json_object".into(),
             },
             upload: Upload {
                 dir: "/tmp".into(),
@@ -55,6 +56,9 @@ impl Config {
                 bubble_delay_per_char_ms: 1,
                 reply_delay: ReplyDelay::for_test(),
                 winding_down_timeout_secs: 300,
+                max_bubble_chars: 20,
+                max_bubbles: 4,
+                llm_format_retries: 2,
             },
             summary: Summary {
                 trigger_turns: 80,
@@ -105,6 +109,13 @@ pub struct Llm {
     pub api_key: String,
     pub model: String,
     pub vision_model: String,
+    /// `off` | `json_object`（兼容 DeepSeek）| `json_schema`（OpenAI strict）
+    #[serde(default = "default_response_format")]
+    pub response_format: String,
+}
+
+fn default_response_format() -> String {
+    "json_object".into()
 }
 
 #[derive(Deserialize)]
@@ -123,10 +134,31 @@ pub struct Chat {
     /// `winding_down` 无用户回复时自动落地终态的超时（秒），默认 300。
     #[serde(default = "default_winding_down_timeout_secs")]
     pub winding_down_timeout_secs: u64,
+    /// 单条气泡最大字数（emoji 不计入），超长打回重试。
+    #[serde(default = "default_max_bubble_chars")]
+    pub max_bubble_chars: usize,
+    /// 单轮最多气泡数。
+    #[serde(default = "default_max_bubbles")]
+    pub max_bubbles: usize,
+    /// JSON/长度不合格时的最大重试次数。
+    #[serde(default = "default_llm_format_retries")]
+    pub llm_format_retries: u32,
 }
 
 fn default_winding_down_timeout_secs() -> u64 {
     300
+}
+
+fn default_max_bubble_chars() -> usize {
+    20
+}
+
+fn default_max_bubbles() -> usize {
+    4
+}
+
+fn default_llm_format_retries() -> u32 {
+    2
 }
 
 /// M-15 忙碌回复延迟参数（秒 / 系数），对应 `docs/详细设计说明书.md` §8。

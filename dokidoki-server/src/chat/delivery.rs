@@ -145,6 +145,9 @@ mod tests {
             bubble_delay_per_char_ms: 50,
             reply_delay: crate::config::ReplyDelay::for_test(),
             winding_down_timeout_secs: 300,
+            max_bubble_chars: 20,
+            max_bubbles: 4,
+            llm_format_retries: 2,
         };
         assert_eq!(bubble_delay_ms(&config, "你好"), 500);
         assert_eq!(bubble_delay_ms(&config, ""), 400);

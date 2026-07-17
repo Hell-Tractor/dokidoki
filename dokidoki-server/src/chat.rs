@@ -23,6 +23,7 @@ mod context;
 mod delivery;
 pub mod conversation_fsm;
 pub mod parser;
+pub(crate) mod format_guard;
 mod read_receipt;
 mod reply_delay;
 mod reply_scheduler;
@@ -201,13 +202,17 @@ impl ChatService {
         let turn_id = Uuid::new_v4().to_string();
         let request =
             context::build_icebreaker_request(&self.db, user_id, conversation_id, &turn_id).await?;
-        let raw = self.llm.chat(request).await?;
-        let bubbles = parser::parse_reply(&raw);
+        let parsed = format_guard::chat_with_format_retry(
+            &self.llm,
+            request,
+            format_guard::FormatLimits::from_chat(&self.chat_config),
+        )
+        .await?;
+        let bubbles = parser::bubbles_from_action(&parsed.action);
 
         if bubbles.is_empty() {
             tracing::warn!(
                 conversation_id = %conversation_id,
-                raw_len = raw.len(),
                 "icebreaker empty reply; rolling back first_contact_done"
             );
             conversation_queries::rollback_icebreaker(&self.db, conversation_id).await?;
@@ -340,8 +345,12 @@ impl ChatService {
             scenes,
         )
         .await?;
-        let raw = self.llm.chat(request).await?;
-        let parsed = crate::memory::parse_llm_response(&raw);
+        let parsed = format_guard::chat_with_format_retry(
+            &self.llm,
+            request,
+            format_guard::FormatLimits::from_chat(&self.chat_config),
+        )
+        .await?;
         crate::memory::apply_side_effects(
             &self.db,
             user_id,

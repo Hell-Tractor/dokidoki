@@ -92,6 +92,7 @@ pub async fn build_chat_request(
         conversation_id: conversation_id.to_owned(),
         turn_id: turn_id.to_owned(),
         messages: llm_messages,
+        response_format: String::new(),
     })
 }
 
@@ -124,6 +125,7 @@ pub async fn build_icebreaker_request(
                 content: format_icebreaker_user_message().into(),
             },
         ],
+        response_format: String::new(),
     })
 }
 
@@ -193,6 +195,7 @@ pub async fn build_proactive_request(
         conversation_id: conversation_id.to_owned(),
         turn_id: turn_id.to_owned(),
         messages: llm_messages,
+        response_format: String::new(),
     })
 }
 

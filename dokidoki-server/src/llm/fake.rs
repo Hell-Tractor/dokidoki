@@ -65,6 +65,7 @@ mod tests {
                 conversation_id: "c".into(),
                 turn_id: "t".into(),
                 messages: vec![],
+                response_format: "off".into(),
             })
             .await
             .unwrap(),
@@ -75,6 +76,7 @@ mod tests {
                 conversation_id: "c".into(),
                 turn_id: "t".into(),
                 messages: vec![],
+                response_format: "off".into(),
             })
             .await
             .unwrap(),

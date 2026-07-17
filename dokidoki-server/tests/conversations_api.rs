@@ -146,7 +146,7 @@ async fn create_conversation_triggers_icebreaker_messages() {
     post_json(
         &mut app,
         "/api/v1/dev/llm/queue",
-        json!({ "responses": ["[REPLY] 嗨|||你终于来了"] }),
+        json!({ "responses": [r#"{"action":{"type":"reply","bubbles":["嗨","你终于来了"]}}"#] }),
     )
     .await;
 

@@ -28,6 +28,8 @@ pub fn build_summary_request(
                 content: user,
             },
         ],
+        // 摘要是自由文本，关闭 JSON 模式。
+        response_format: "off".into(),
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    chat::{parser, ChatService},
+    chat::{format_guard, parser, ChatService},
     db::queries::conversations as conversation_queries,
     error::AppError,
 };
@@ -49,8 +49,14 @@ pub async fn generate_and_deliver(
         "proactive prompt assembled"
     );
 
-    let raw = match chat.llm.chat(request).await {
-        Ok(raw) => raw,
+    let parsed = match format_guard::chat_with_format_retry(
+        &chat.llm,
+        request,
+        format_guard::FormatLimits::from_chat(&chat.chat_config),
+    )
+    .await
+    {
+        Ok(parsed) => parsed,
         Err(err) => {
             tracing::warn!(
                 conversation_id = %candidate.id,
@@ -63,7 +69,7 @@ pub async fn generate_and_deliver(
         }
     };
 
-    let bubbles = parser::parse_reply(&raw);
+    let bubbles = parser::bubbles_from_action(&parsed.action);
     tracing::debug!(
         conversation_id = %candidate.id,
         trigger = fire.as_str(),
@@ -76,7 +82,6 @@ pub async fn generate_and_deliver(
             user_id = %candidate.user_id,
             character_id = %candidate.character_id,
             trigger = fire.as_str(),
-            raw_len = raw.len(),
             "proactive empty reply (skip, not counted)"
         );
         return Ok(false);
