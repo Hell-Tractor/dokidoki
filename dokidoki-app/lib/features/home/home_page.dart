@@ -25,6 +25,18 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
+  Future<void> _refreshConversations() {
+    return ref.read(conversationsProvider.notifier).refresh();
+  }
+
+  /// 会话列表走 HTTP，不订阅 WS；从聊天返回后主动拉一次摘要。
+  Future<void> _openChat(ConversationListItem item) async {
+    await context.push('/chat/${item.id}', extra: item);
+    if (mounted) {
+      await _refreshConversations();
+    }
+  }
+
   Future<void> _openCharacterPicker() async {
     final character = await showModalBottomSheet<Character>(
       context: context,
@@ -46,7 +58,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           characterName: character.name,
           status: conversation.status,
         );
-        context.push('/chat/${conversation.id}', extra: item);
+        await _openChat(item);
       }
     } catch (error) {
       if (mounted) {
@@ -67,7 +79,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.push('/settings'),
+            tooltip: '设置',
+            onPressed: () async {
+              await context.push('/settings');
+              if (mounted) {
+                await _refreshConversations();
+              }
+            },
           ),
         ],
       ),
@@ -83,8 +101,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           }
 
           return RefreshIndicator(
-            onRefresh: () =>
-                ref.read(conversationsProvider.notifier).refresh(),
+            onRefresh: _refreshConversations,
             child: ListView.separated(
               itemCount: conversations.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
@@ -92,7 +109,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 final item = conversations[index];
                 return ConversationTile(
                   item: item,
-                  onTap: () => context.push('/chat/${item.id}', extra: item),
+                  onTap: () => _openChat(item),
                 );
               },
             ),

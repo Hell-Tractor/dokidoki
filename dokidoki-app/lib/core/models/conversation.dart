@@ -35,6 +35,21 @@ class ConversationListItem {
   final LastMessage? lastMessage;
   final String? currentActivity;
 
+  ConversationListItem copyWith({
+    String? status,
+    LastMessage? lastMessage,
+    String? currentActivity,
+  }) {
+    return ConversationListItem(
+      id: id,
+      characterId: characterId,
+      characterName: characterName,
+      status: status ?? this.status,
+      lastMessage: lastMessage ?? this.lastMessage,
+      currentActivity: currentActivity ?? this.currentActivity,
+    );
+  }
+
   factory ConversationListItem.fromJson(Map<String, dynamic> json) {
     return ConversationListItem(
       id: json['id'] as String,

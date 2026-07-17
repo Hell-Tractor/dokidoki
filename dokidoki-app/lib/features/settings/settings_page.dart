@@ -206,6 +206,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final userAsync = ref.watch(currentUserProvider);
     final serverUrl = ref.watch(authConfigProvider).value?.serverUrl;
     _loadServerUrl(serverUrl);
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
@@ -219,143 +221,178 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _loadProfile(user);
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             children: [
-              _SectionHeader(title: '用户档案'),
-              ListTile(
-                title: const Text('用户名'),
-                subtitle: Text(user.username),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _displayNameController,
-                decoration: const InputDecoration(
-                  labelText: '称呼',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('生日'),
-                subtitle: Text(_birthday ?? '未设置'),
-                trailing: TextButton(
-                  onPressed: _pickBirthday,
-                  child: const Text('选择'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _timezoneController,
-                decoration: InputDecoration(
-                  labelText: '时区（IANA）',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.my_location_outlined),
-                    tooltip: '使用设备时区',
-                    onPressed: _useDeviceTimezone,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
+              _SettingsCard(
+                title: '用户档案',
+                subtitle: '角色如何称呼你，以及主动消息相关偏好',
                 children: [
-                  const Expanded(
-                    child: Text('每日主动消息上限'),
+                  _ReadonlyRow(
+                    label: '用户名',
+                    value: user.username,
                   ),
-                  IconButton(
-                    onPressed: _maxProactivePerDay > 0
-                        ? () => setState(() => _maxProactivePerDay--)
-                        : null,
-                    icon: const Icon(Icons.remove_circle_outline),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _displayNameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: '称呼',
+                      hintText: '角色对你的叫法',
+                    ),
                   ),
-                  Text('$_maxProactivePerDay'),
-                  IconButton(
-                    onPressed: _maxProactivePerDay < 100
-                        ? () => setState(() => _maxProactivePerDay++)
-                        : null,
-                    icon: const Icon(Icons.add_circle_outline),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: _pickBirthday,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '生日',
+                        suffixIcon: Icon(Icons.calendar_today_outlined),
+                      ),
+                      child: Text(
+                        _birthday ?? '未设置',
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: _birthday == null
+                              ? scheme.onSurfaceVariant
+                              : scheme.onSurface,
+                        ),
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _savingProfile ? null : _saveProfile,
-                child: _savingProfile
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('保存档案'),
-              ),
-              const SizedBox(height: 32),
-              _SectionHeader(title: '连接'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _serverUrlController,
-                decoration: const InputDecoration(
-                  labelText: 'Server URL',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.url,
-                onChanged: (_) {
-                  if (_serverConnectionOk || _serverStatusMessage != null) {
-                    setState(() {
-                      _serverConnectionOk = false;
-                      _serverStatusMessage = null;
-                    });
-                  }
-                },
-              ),
-              if (_serverStatusMessage != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _serverStatusMessage!,
-                  style: TextStyle(
-                    color: _serverConnectionOk
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.error,
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _timezoneController,
+                    decoration: InputDecoration(
+                      labelText: '时区',
+                      hintText: '例如 Asia/Shanghai',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.my_location_outlined),
+                        tooltip: '使用设备时区',
+                        onPressed: _useDeviceTimezone,
+                      ),
+                    ),
                   ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _testingServer ? null : _testServer,
-                      child: _testingServer
+                  const SizedBox(height: 20),
+                  Text(
+                    '每日主动消息上限',
+                    style: textTheme.labelLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: _maxProactivePerDay > 0
+                            ? () => setState(() => _maxProactivePerDay--)
+                            : null,
+                        icon: const Icon(Icons.remove),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '$_maxProactivePerDay',
+                          textAlign: TextAlign.center,
+                          style: textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        onPressed: _maxProactivePerDay < 100
+                            ? () => setState(() => _maxProactivePerDay++)
+                            : null,
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _savingProfile ? null : _saveProfile,
+                      child: _savingProfile
                           ? const SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('测试连接'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.tonal(
-                      onPressed: _savingServer ? null : _saveServerUrl,
-                      child: _savingServer
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('保存地址'),
+                          : const Text('保存档案'),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
-              OutlinedButton(
-                onPressed: _logout,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
+              const SizedBox(height: 16),
+              _SettingsCard(
+                title: '连接',
+                subtitle: '后端地址，修改后需先测试再保存',
+                children: [
+                  TextField(
+                    controller: _serverUrlController,
+                    decoration: const InputDecoration(
+                      labelText: '服务器地址',
+                      hintText: 'https://example.com',
+                    ),
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) {
+                      if (_serverConnectionOk || _serverStatusMessage != null) {
+                        setState(() {
+                          _serverConnectionOk = false;
+                          _serverStatusMessage = null;
+                        });
+                      }
+                    },
+                  ),
+                  if (_serverStatusMessage != null) ...[
+                    const SizedBox(height: 12),
+                    _StatusBanner(
+                      message: _serverStatusMessage!,
+                      ok: _serverConnectionOk,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _testingServer ? null : _testServer,
+                          child: _testingServer
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('测试连接'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.tonal(
+                          onPressed: _savingServer ? null : _saveServerUrl,
+                          child: _savingServer
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('保存地址'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: _logout,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: scheme.error,
+                    side: BorderSide(color: scheme.error.withValues(alpha: 0.45)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('退出登录'),
                 ),
-                child: const Text('退出登录'),
               ),
             ],
           );
@@ -365,18 +402,126 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
 
   final String title;
+  final String subtitle;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Theme.of(context).colorScheme.primary,
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadonlyRow extends StatelessWidget {
+  const _ReadonlyRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
           ),
+          const SizedBox(height: 4),
+          Text(value, style: textTheme.bodyLarge),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.message, required this.ok});
+
+  final String message;
+  final bool ok;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = ok ? scheme.primary : scheme.error;
+    final bg = ok
+        ? scheme.primaryContainer.withValues(alpha: 0.55)
+        : scheme.errorContainer.withValues(alpha: 0.55);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            ok ? Icons.check_circle_outline : Icons.error_outline,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: color,
+                  ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
