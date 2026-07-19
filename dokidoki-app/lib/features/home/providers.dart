@@ -45,7 +45,7 @@ class ConversationsNotifier extends AsyncNotifier<List<ConversationListItem>> {
       }
       // 重连后服务端订阅清空，需要重新 subscribe。
       _subscribedIds.clear();
-      final list = state.valueOrNull ?? const <ConversationListItem>[];
+      final list = state.value ?? const <ConversationListItem>[];
       _syncSubscriptions(list.map((item) => item.id));
     });
 
@@ -79,7 +79,7 @@ class ConversationsNotifier extends AsyncNotifier<List<ConversationListItem>> {
   }
 
   void _applyIncomingMessage(ChatMessage message) {
-    final current = state.valueOrNull;
+    final current = state.value;
     if (current == null || current.isEmpty) {
       return;
     }
@@ -111,7 +111,7 @@ class ConversationsNotifier extends AsyncNotifier<List<ConversationListItem>> {
     }
 
     state = await AsyncValue.guard(api.listConversations);
-    final list = state.valueOrNull ?? const <ConversationListItem>[];
+    final list = state.value ?? const <ConversationListItem>[];
     _syncSubscriptions(list.map((item) => item.id));
   }
 

@@ -618,3 +618,27 @@ async fn ws_ping_returns_pong() {
         serde_json::from_str(pong.to_text().expect("pong text")).expect("pong json");
     assert_eq!(pong["type"], "pong");
 }
+
+#[tokio::test]
+async fn ws_accepts_token_query_param() {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::connect_async;
+
+    let mut app = setup_app().await;
+    let token = register_and_token(&mut app).await;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind ws test port");
+    let addr = listener.local_addr().expect("local addr");
+    let router = app.clone();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.expect("serve ws test");
+    });
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/api/v1/ws?token={token}"))
+        .await
+        .expect("ws connect with query token");
+    let connected = ws.next().await.expect("connected frame").expect("connected ok");
+    let connected: serde_json::Value =
+        serde_json::from_str(connected.to_text().expect("connected text")).expect("connected json");
+    assert_eq!(connected["type"], "connected");
+}

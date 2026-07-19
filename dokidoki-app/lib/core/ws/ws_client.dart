@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'ws_connector.dart';
@@ -68,10 +69,18 @@ class WsClient {
     _setState(WsConnectionState.connecting);
 
     try {
-      final channel = connectWs(
-        Uri.parse(wsUrl),
-        {'Authorization': 'Bearer $token'},
-      );
+      // Browser WebSocket cannot set Authorization; pass token in the query.
+      var uri = Uri.parse(wsUrl);
+      final headers = <String, String>{};
+      if (kIsWeb) {
+        uri = uri.replace(
+          queryParameters: {...uri.queryParameters, 'token': token},
+        );
+      } else {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final channel = connectWs(uri, headers);
       _channel = channel;
       _reconnectAttempt = 0;
       _setState(WsConnectionState.connected);
@@ -129,7 +138,9 @@ class WsClient {
       if (event.type == 'pong') {
         return;
       }
-      _eventsController.add(event);
+      if (!_eventsController.isClosed) {
+        _eventsController.add(event);
+      }
     } catch (_) {
       // Ignore malformed frames.
     }
