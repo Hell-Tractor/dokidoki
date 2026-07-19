@@ -121,4 +121,6 @@ flutter run                 # 交互选择设备
 
 ## License
 
-待定
+本项目采用 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）。
+
+若你修改本软件并通过网络提供服务，必须向该服务的用户提供对应完整源码。详见仓库根目录 [`LICENSE`](LICENSE)。
