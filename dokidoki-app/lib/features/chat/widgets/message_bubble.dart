@@ -10,6 +10,7 @@ class MessageBubble extends StatelessWidget {
     required this.characterName,
     required this.userDisplayName,
     this.characterAvatarUrl,
+    this.onRetry,
   });
 
   final ChatMessage message;
@@ -17,6 +18,7 @@ class MessageBubble extends StatelessWidget {
   final String characterName;
   final String userDisplayName;
   final String? characterAvatarUrl;
+  final VoidCallback? onRetry;
 
   static const double avatarSize = 36;
 
@@ -25,12 +27,18 @@ class MessageBubble extends StatelessWidget {
     final isUser = message.isUser;
     final colorScheme = Theme.of(context).colorScheme;
 
-    final bubbleColor = isUser
-        ? colorScheme.primaryContainer
-        : colorScheme.surfaceContainerHighest;
-    final textColor = isUser
-        ? colorScheme.onPrimaryContainer
-        : colorScheme.onSurface;
+    final Color bubbleColor;
+    final Color textColor;
+    if (message.isFailed) {
+      bubbleColor = colorScheme.errorContainer;
+      textColor = colorScheme.onErrorContainer;
+    } else if (isUser) {
+      bubbleColor = colorScheme.primaryContainer;
+      textColor = colorScheme.onPrimaryContainer;
+    } else {
+      bubbleColor = colorScheme.surfaceContainerHighest;
+      textColor = colorScheme.onSurface;
+    }
 
     final avatarLabel = isUser ? userDisplayName : characterName;
     final avatarWidget = showAvatar
@@ -46,33 +54,55 @@ class MessageBubble extends StatelessWidget {
           )
         : const SizedBox(width: avatarSize, height: avatarSize);
 
-    final bubble = Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.72,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(isUser ? 16 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 16),
+    final bubble = Opacity(
+      opacity: message.isSending ? 0.7 : 1,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.72,
         ),
-      ),
-      child: Text(
-        message.displayContent,
-        style: TextStyle(color: textColor),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: bubbleColor,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isUser ? 16 : 4),
+            bottomRight: Radius.circular(isUser ? 4 : 16),
+          ),
+        ),
+        child: Text(
+          message.displayContent,
+          style: TextStyle(color: textColor),
+        ),
       ),
     );
 
-    final readIndicator = isUser && message.isRead
-        ? Icon(
-            Icons.done,
-            size: 14,
-            color: Colors.green.shade600,
-          )
-        : null;
+    Widget? trailing;
+    if (message.isFailed && onRetry != null) {
+      trailing = IconButton(
+        tooltip: '重试',
+        onPressed: onRetry,
+        icon: Icon(Icons.refresh, size: 18, color: colorScheme.error),
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        padding: EdgeInsets.zero,
+      );
+    } else if (message.isSending) {
+      trailing = SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: colorScheme.outline,
+        ),
+      );
+    } else if (isUser && message.isRead) {
+      trailing = Icon(
+        Icons.done,
+        size: 14,
+        color: Colors.green.shade600,
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -83,9 +113,9 @@ class MessageBubble extends StatelessWidget {
         children: isUser
             ? [
                 bubble,
-                if (readIndicator != null) ...[
+                if (trailing != null) ...[
                   const SizedBox(width: 4),
-                  readIndicator,
+                  trailing,
                 ],
                 const SizedBox(width: 8),
                 avatarWidget,

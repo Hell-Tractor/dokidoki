@@ -4,13 +4,13 @@ class ChatInputBar extends StatelessWidget {
   const ChatInputBar({
     super.key,
     required this.controller,
+    required this.focusNode,
     required this.onSend,
-    this.sending = false,
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final VoidCallback onSend;
-  final bool sending;
 
   @override
   Widget build(BuildContext context) {
@@ -22,10 +22,12 @@ class ChatInputBar extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
+                autofocus: true,
                 minLines: 1,
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
-                onSubmitted: sending ? null : (_) => onSend(),
+                onSubmitted: (_) => onSend(),
                 decoration: InputDecoration(
                   hintText: '输入消息…',
                   border: OutlineInputBorder(
@@ -40,14 +42,8 @@ class ChatInputBar extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             IconButton.filled(
-              onPressed: sending ? null : onSend,
-              icon: sending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
+              onPressed: onSend,
+              icon: const Icon(Icons.send),
             ),
           ],
         ),

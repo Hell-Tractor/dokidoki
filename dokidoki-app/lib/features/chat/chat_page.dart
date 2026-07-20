@@ -29,6 +29,7 @@ class ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _inputController = TextEditingController();
+  final _inputFocusNode = FocusNode();
   final _scrollController = ScrollController();
 
   ChatContext get _chatContext {
@@ -50,6 +51,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ..removeListener(_onScroll)
       ..dispose();
     _inputController.dispose();
+    _inputFocusNode.dispose();
     super.dispose();
   }
 
@@ -64,23 +66,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
-  Future<void> _sendMessage() async {
+  void _sendMessage() {
     final text = _inputController.text;
     if (text.trim().isEmpty) {
       return;
     }
 
-    try {
-      await ref.read(chatProvider(_chatContext).notifier).sendText(text);
-      _inputController.clear();
-      await _scrollToBottom();
-    } catch (error) {
+    _inputController.clear();
+    ref.read(chatProvider(_chatContext).notifier).sendText(text);
+    // onSubmitted 会清掉焦点，下一帧再要回来以支持连续输入。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('发送失败：$error')),
-        );
+        _inputFocusNode.requestFocus();
       }
-    }
+    });
+  }
+
+  void _retryMessage(String messageId) {
+    ref.read(chatProvider(_chatContext).notifier).retryFailed(messageId);
   }
 
   Future<void> _scrollToBottom() async {
@@ -222,6 +225,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           characterName: chat.characterName ?? '角色',
                           userDisplayName: userName,
                           characterAvatarUrl: avatarUrl,
+                          onRetry: message.isFailed
+                              ? () => _retryMessage(message.id)
+                              : null,
                         );
                       },
                     ),
@@ -243,16 +249,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
             ),
           ),
-          chatAsync.maybeWhen(
-            data: (chat) => ChatInputBar(
-              controller: _inputController,
-              sending: chat.sending,
-              onSend: _sendMessage,
-            ),
-            orElse: () => ChatInputBar(
-              controller: _inputController,
-              onSend: _sendMessage,
-            ),
+          ChatInputBar(
+            controller: _inputController,
+            focusNode: _inputFocusNode,
+            onSend: _sendMessage,
           ),
         ],
       ),

@@ -25,6 +25,8 @@ class SentMessage {
   }
 }
 
+enum MessageSendStatus { sent, sending, failed }
+
 class ChatMessage {
   const ChatMessage({
     required this.id,
@@ -37,6 +39,7 @@ class ChatMessage {
     required this.createdAt,
     this.replyToId,
     this.readAt,
+    this.sendStatus = MessageSendStatus.sent,
   });
 
   final String id;
@@ -49,11 +52,15 @@ class ChatMessage {
   final String createdAt;
   final String? replyToId;
   final String? readAt;
+  final MessageSendStatus sendStatus;
 
   bool get isText => contentType == 'text';
   bool get isImage => contentType == 'image';
   bool get isUser => role == 'user';
   bool get isCharacter => role == 'character';
+  bool get isLocal => id.startsWith('local_');
+  bool get isSending => sendStatus == MessageSendStatus.sending;
+  bool get isFailed => sendStatus == MessageSendStatus.failed;
 
   String get displayContent {
     if (isImage) {
@@ -64,18 +71,25 @@ class ChatMessage {
 
   bool get isRead => readAt != null;
 
-  ChatMessage copyWith({String? readAt}) {
+  ChatMessage copyWith({
+    String? id,
+    String? turnId,
+    String? createdAt,
+    String? readAt,
+    MessageSendStatus? sendStatus,
+  }) {
     return ChatMessage(
-      id: id,
+      id: id ?? this.id,
       conversationId: conversationId,
       role: role,
       content: content,
       contentType: contentType,
-      turnId: turnId,
+      turnId: turnId ?? this.turnId,
       seqInTurn: seqInTurn,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
       replyToId: replyToId,
       readAt: readAt ?? this.readAt,
+      sendStatus: sendStatus ?? this.sendStatus,
     );
   }
 

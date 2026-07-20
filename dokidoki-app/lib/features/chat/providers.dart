@@ -152,42 +152,114 @@ class ChatNotifier extends AsyncNotifier<ChatState> {
     }
 
     final current = state.value;
-    if (current == null || current.sending) {
+    if (current == null) {
       return;
     }
 
+    final localId =
+        'local_${DateTime.now().microsecondsSinceEpoch}_${current.messages.length}';
+    final optimistic = ChatMessage(
+      id: localId,
+      conversationId: context.conversationId,
+      role: 'user',
+      content: trimmed,
+      contentType: 'text',
+      turnId: null,
+      seqInTurn: 0,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      sendStatus: MessageSendStatus.sending,
+    );
+    _appendMessage(optimistic);
+    await _dispatchSend(localId, trimmed);
+  }
+
+  Future<void> retryFailed(String messageId) async {
+    final current = state.value;
+    if (current == null) {
+      return;
+    }
+
+    final index = current.messages.indexWhere((m) => m.id == messageId);
+    if (index < 0) {
+      return;
+    }
+
+    final message = current.messages[index];
+    if (!message.isFailed || !message.isUser || !message.isText) {
+      return;
+    }
+
+    _replaceMessage(
+      messageId,
+      message.copyWith(sendStatus: MessageSendStatus.sending),
+    );
+    await _dispatchSend(messageId, message.content);
+  }
+
+  Future<void> _dispatchSend(String localId, String content) async {
     final api = ref.read(messagesApiProvider);
     if (api == null) {
+      _replaceMessage(
+        localId,
+        _messageById(localId)?.copyWith(sendStatus: MessageSendStatus.failed),
+      );
       return;
     }
 
-    state = AsyncData(current.copyWith(sending: true));
-
     try {
-      final sent = await api.sendText(context.conversationId, trimmed);
-      final message = ChatMessage(
-        id: sent.id,
-        conversationId: context.conversationId,
-        role: 'user',
-        content: trimmed,
-        contentType: 'text',
-        turnId: sent.turnId,
-        seqInTurn: 0,
-        createdAt: sent.createdAt,
-      );
-      _appendMessage(message);
+      final sent = await api.sendText(context.conversationId, content);
+      final pending = _messageById(localId);
+      if (pending == null) {
+        return;
+      }
 
-      final latest = state.value;
-      if (latest != null) {
-        state = AsyncData(latest.copyWith(sending: false));
+      _replaceMessage(
+        localId,
+        pending.copyWith(
+          id: sent.id,
+          turnId: sent.turnId,
+          createdAt: sent.createdAt,
+          sendStatus: MessageSendStatus.sent,
+        ),
+      );
+    } catch (_) {
+      final pending = _messageById(localId);
+      if (pending != null) {
+        _replaceMessage(
+          localId,
+          pending.copyWith(sendStatus: MessageSendStatus.failed),
+        );
       }
-    } catch (error) {
-      final latest = state.value;
-      if (latest != null) {
-        state = AsyncData(latest.copyWith(sending: false));
-      }
-      rethrow;
     }
+  }
+
+  ChatMessage? _messageById(String id) {
+    final current = state.value;
+    if (current == null) {
+      return null;
+    }
+    for (final message in current.messages) {
+      if (message.id == id) {
+        return message;
+      }
+    }
+    return null;
+  }
+
+  void _replaceMessage(String id, ChatMessage? next) {
+    if (next == null) {
+      return;
+    }
+    final current = state.value;
+    if (current == null) {
+      return;
+    }
+
+    final messages = [
+      for (final message in current.messages)
+        if (message.id == id) next else message,
+    ];
+    state = AsyncData(current.copyWith(messages: messages));
   }
 
   void _appendMessage(ChatMessage message) {
